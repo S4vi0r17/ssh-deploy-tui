@@ -71,6 +71,10 @@ var (
 	spinnerStyle = lipgloss.NewStyle().
 			Foreground(lavender)
 
+	logStyle = lipgloss.NewStyle().
+			Foreground(subtext0).
+			PaddingLeft(2)
+
 	helpStyle = lipgloss.NewStyle().
 			Foreground(overlay0).
 			MarginTop(1)
@@ -98,4 +102,26 @@ var (
 
 	accentLineStyle = lipgloss.NewStyle().
 			Foreground(surface2)
+
+	statusOnlineStyle = lipgloss.NewStyle().
+				Foreground(green).
+				Bold(true)
+
+	statusOfflineStyle = lipgloss.NewStyle().
+				Foreground(red)
+)
+
+// Iconos minimalistas
+const (
+	IconArrow    = "›"
+	IconDot      = "•"
+	IconCheck    = "✓"
+	IconCross    = "×"
+	IconCircle   = "○"
+	IconFilled   = "●"
+	IconFolder   = "□"
+	IconServer   = "◆"
+	IconLive     = "●"
+	IconTerminal = "❯"
+	IconSSH      = "⌁"
 )

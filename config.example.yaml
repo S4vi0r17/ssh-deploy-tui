@@ -1,0 +1,37 @@
+# Copia este archivo como config.yaml y llena tus datos
+
+app_name: "My Deploy"
+
+ssh:
+  host: tu-ip-o-dominio
+  port: 22
+  user: tu-usuario
+  password: "tu-password"
+  # key_path: ~/.ssh/id_rsa  # Alternativa: usar llave SSH
+
+# Proyectos en el VPS
+projects:
+  mi-backend:
+    name: "Mi Backend"
+    path: /var/www/html/mi-backend
+    type: pm2
+    branch: main
+    package_manager: pnpm
+    install_cmd: pnpm install
+    build_cmd: pnpm build
+    pm2_name: mi-backend
+
+  mi-frontend:
+    name: "Mi Frontend"
+    path: /var/www/html/mi-frontend
+    type: static
+    branch: main
+    package_manager: bun
+    install_cmd: bun install
+    build_cmd: bun run build
+    output_dir: dist
+
+# Configuracion de Nginx
+nginx:
+  config_path: /etc/nginx/nginx.conf
+  sites_path: /etc/nginx/sites-available
