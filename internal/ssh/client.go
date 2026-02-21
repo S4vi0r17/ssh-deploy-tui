@@ -90,10 +90,93 @@ func (c *Client) Run(command string) (string, error) {
 	return string(output), nil
 }
 
+func (c *Client) RunInDir(dir, command string) (string, error) {
+	fullCmd := fmt.Sprintf("cd %s && %s", dir, command)
+	return c.Run(fullCmd)
+}
+
 func (c *Client) IsConnected() bool {
 	return c.conn != nil
 }
 
 func (c *Client) GetHost() string {
 	return c.config.Host
+}
+
+// RunStream ejecuta un comando y envia el output linea por linea al canal
+func (c *Client) RunStream(command string, outputCh chan<- string, stopCh <-chan struct{}) error {
+	if c.conn == nil {
+		return fmt.Errorf("no hay conexion SSH activa")
+	}
+
+	session, err := c.conn.NewSession()
+	if err != nil {
+		return fmt.Errorf("error creando sesion: %v", err)
+	}
+
+	fullCmd := command
+	if c.config.InitCmd != "" {
+		fullCmd = fmt.Sprintf("%s && %s", c.config.InitCmd, command)
+	}
+
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		session.Close()
+		return err
+	}
+
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		session.Close()
+		return err
+	}
+
+	if err := session.Start(fullCmd); err != nil {
+		session.Close()
+		return err
+	}
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			select {
+			case <-stopCh:
+				session.Close()
+				return
+			default:
+				n, err := stdout.Read(buf)
+				if n > 0 {
+					outputCh <- string(buf[:n])
+				}
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				n, err := stderr.Read(buf)
+				if n > 0 {
+					outputCh <- string(buf[:n])
+				}
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	go func() {
+		<-stopCh
+		session.Close()
+	}()
+
+	return nil
 }
