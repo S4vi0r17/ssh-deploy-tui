@@ -33,7 +33,7 @@ const (
 	viewScrollable
 )
 
-const AppVersion = "1.0.0"
+const AppVersion = "1.2.1"
 
 type menuItem struct {
 	title       string
@@ -728,7 +728,7 @@ func (m Model) renderSplash() string {
 
 	subtitle := "Deploy System"
 	if m.width >= 50 {
-		subtitle = "Cloud Remote Server | Deploy System"
+		subtitle = "Cloud Remote Server • Deploy System"
 	}
 	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, splashSubtitleStyle.Render(subtitle)))
 	s.WriteString("\n\n")
