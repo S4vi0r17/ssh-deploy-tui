@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Logo ASCII - S4v!0r (Savior en leet speak)
+// Logo ASCII - S4v!0r (Savior in leet speak)
 const Logo = `
 ░██████╗░░██╗██╗██╗░░░██╗██╗░█████╗░██████╗░
 ██╔════╝░██╔╝██║██║░░░██║██║██╔══██╗██╔══██╗
@@ -139,7 +139,7 @@ var (
 			MarginBottom(1)
 )
 
-// Iconos minimalistas
+// Minimalist icons
 const (
 	IconArrow    = "›"
 	IconDot      = "•"

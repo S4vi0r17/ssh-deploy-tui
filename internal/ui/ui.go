@@ -41,29 +41,29 @@ type menuItem struct {
 }
 
 var mainMenuItems = []menuItem{
-	{title: "Deploy proyecto", description: "Pull, install, build y restart"},
-	{title: "Ver logs", description: "Mostrar logs de PM2"},
-	{title: "Restart servicio", description: "Reiniciar sin rebuild"},
-	{title: "Status PM2", description: "Ver estado de procesos"},
-	{title: "Nginx", description: "Reload o test config"},
-	{title: "Salir", description: "Cerrar aplicacion"},
+	{title: "Deploy project", description: "Pull, install, build and restart"},
+	{title: "View logs", description: "Show PM2 logs"},
+	{title: "Restart service", description: "Restart without rebuild"},
+	{title: "PM2 Status", description: "View process status"},
+	{title: "Nginx", description: "Reload or test config"},
+	{title: "Exit", description: "Close application"},
 }
 
 var logTypeMenuItems = []menuItem{
-	{title: "Tiempo real", description: "Streaming en vivo (auto-refresh)"},
-	{title: "Ultimas 100 lineas", description: "Ver logs historicos"},
-	{title: "← Volver", description: "Menu principal"},
+	{title: "Real-time", description: "Live streaming (auto-refresh)"},
+	{title: "Last 100 lines", description: "View historical logs"},
+	{title: "← Back", description: "Main menu"},
 }
 
 var nginxMenuItems = []menuItem{
-	{title: "Ver configuracion", description: "Mostrar sites-available"},
-	{title: "Copiar config", description: "Copiar al clipboard"},
-	{title: "Test config", description: "Verificar configuracion"},
-	{title: "Reload", description: "Recargar nginx"},
-	{title: "← Volver", description: "Menu principal"},
+	{title: "View config", description: "Show sites-available"},
+	{title: "Copy config", description: "Copy to clipboard"},
+	{title: "Test config", description: "Verify configuration"},
+	{title: "Reload", description: "Reload nginx"},
+	{title: "← Back", description: "Main menu"},
 }
 
-// Buffer compartido para logs en streaming
+// Shared buffer for streaming logs
 type logBuffer struct {
 	mu    sync.Mutex
 	lines []string
@@ -101,12 +101,12 @@ type Model struct {
 	width           int
 	height          int
 	connectionError string
-	// Streaming
+	// Streaming fields
 	streamStopCh  chan struct{}
 	streaming     bool
 	logBuffer     *logBuffer
 	streamPm2Name string
-	// Viewport para scroll
+	// Viewport for scrolling
 	viewport      viewport.Model
 	viewportReady bool
 	viewportTitle string
@@ -114,7 +114,7 @@ type Model struct {
 	splashTick int
 }
 
-// Mensajes
+// Messages
 type sshConnectedMsg struct{ err error }
 type deployDoneMsg struct {
 	success bool
@@ -214,7 +214,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.connectionError = msg.err.Error()
 			m.state = viewResult
-			m.result = fmt.Sprintf("Error de conexion SSH:\n\n%s\n\nVerifica tu config.yaml", msg.err.Error())
+			m.result = fmt.Sprintf("SSH connection error:\n\n%s\n\nCheck your config.yaml", msg.err.Error())
 			m.resultSuccess = false
 		} else {
 			m.state = viewMainMenu
@@ -279,7 +279,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Si estamos en vista scrollable, manejar scroll
+	// If in scrollable view, handle scroll
 	if m.state == viewScrollable {
 		switch msg.String() {
 		case "q", "esc", "enter":
@@ -423,7 +423,7 @@ func (m Model) handleMainMenuSelect() (tea.Model, tea.Cmd) {
 	case 4: // Nginx
 		m.state = viewNginx
 		m.cursor = 0
-	case 5: // Salir
+	case 5: // Exit
 		m.sshClient.Close()
 		return m, tea.Quit
 	}
@@ -442,7 +442,7 @@ func (m Model) handleProjectSelect() (tea.Model, tea.Cmd) {
 	case "logs":
 		if project.Type != "pm2" {
 			m.state = viewResult
-			m.result = "Este proyecto es estatico, no tiene logs de PM2"
+			m.result = "This is a static project, it has no PM2 logs"
 			m.resultSuccess = false
 			return m, nil
 		}
@@ -452,7 +452,7 @@ func (m Model) handleProjectSelect() (tea.Model, tea.Cmd) {
 	case "restart":
 		if project.Type != "pm2" {
 			m.state = viewResult
-			m.result = "Este proyecto es estatico, no usa PM2"
+			m.result = "This is a static project, it does not use PM2"
 			m.resultSuccess = false
 			return m, nil
 		}
@@ -466,17 +466,17 @@ func (m Model) handleLogTypeSelect() (tea.Model, tea.Cmd) {
 	project, _ := m.config.GetProject(m.selectedProject)
 
 	switch m.cursor {
-	case 0: // Tiempo real
+	case 0: // Real-time
 		m.logBuffer = &logBuffer{lines: []string{}}
 		m.logs = []string{}
 		m.state = viewLogsStream
 		m.streaming = true
 		m.streamPm2Name = project.PM2Name
 		return m, tea.Batch(m.startLogStream(project.PM2Name), streamTick())
-	case 1: // Ultimas 100 lineas
+	case 1: // Last 100 lines
 		m.state = viewDeploying
 		return m, m.getLogs(project.PM2Name)
-	case 2: // Volver
+	case 2: // Back
 		m.state = viewMainMenu
 		m.cursor = 0
 	}
@@ -485,10 +485,10 @@ func (m Model) handleLogTypeSelect() (tea.Model, tea.Cmd) {
 
 func (m Model) handleNginxSelect() (tea.Model, tea.Cmd) {
 	switch m.cursor {
-	case 0: // Ver configuracion
+	case 0: // View config
 		m.state = viewDeploying
 		return m, m.getNginxConfig()
-	case 1: // Copiar config al clipboard
+	case 1: // Copy config to clipboard
 		m.state = viewDeploying
 		return m, m.nginxCopyToClipboard()
 	case 2: // Test
@@ -497,7 +497,7 @@ func (m Model) handleNginxSelect() (tea.Model, tea.Cmd) {
 	case 3: // Reload
 		m.state = viewDeploying
 		return m, m.nginxReload()
-	case 4: // Volver
+	case 4: // Back
 		m.state = viewMainMenu
 		m.cursor = 0
 	}
@@ -524,7 +524,7 @@ func (m Model) doDeploy(project config.Project) tea.Cmd {
 
 		results := exec.GetResults()
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("deploy de %s\n\n", project.Name))
+		sb.WriteString(fmt.Sprintf("deploy of %s\n\n", project.Name))
 		for _, r := range results {
 			if r.Success {
 				sb.WriteString(fmt.Sprintf("  %s %s\n", IconCheck, r.Step))
@@ -543,7 +543,7 @@ func (m Model) doRestart(project config.Project) tea.Cmd {
 		if err != nil {
 			return deployDoneMsg{success: false, message: fmt.Sprintf("error: %v", err)}
 		}
-		return deployDoneMsg{success: true, message: fmt.Sprintf("%s reiniciado", project.Name)}
+		return deployDoneMsg{success: true, message: fmt.Sprintf("%s restarted", project.Name)}
 	}
 }
 
@@ -617,7 +617,7 @@ func (m Model) getNginxConfig() tea.Cmd {
 	return func() tea.Msg {
 		output, err := executor.GetNginxConfig(m.sshClient)
 		return scrollableContentMsg{
-			title:   "Configuracion Nginx",
+			title:   "Nginx Configuration",
 			content: output,
 			err:     err,
 		}
@@ -668,9 +668,9 @@ func (m Model) View() string {
 
 	var help string
 	if m.state == viewScrollable {
-		help = helpStyle.Render("up/down/PgUp/PgDn: scroll | esc/q: volver")
+		help = helpStyle.Render("up/down/PgUp/PgDn: scroll | esc/q: back")
 	} else {
-		help = helpStyle.Render("up/down: navegar | enter: seleccionar | esc/q: volver | ctrl+c: salir")
+		help = helpStyle.Render("up/down: navigate | enter: select | esc/q: back | ctrl+c: exit")
 	}
 	s.WriteString("\n")
 	s.WriteString(help)
@@ -746,8 +746,6 @@ func (m Model) renderSplash() string {
 }
 
 func (m Model) renderHeader() string {
-	var s strings.Builder
-
 	appName := m.config.AppName
 	if appName == "" {
 		appName = "SSH Deploy"
@@ -764,15 +762,26 @@ func (m Model) renderHeader() string {
 		status = statusOfflineStyle.Render(fmt.Sprintf("%s offline", IconCircle))
 	}
 
-	s.WriteString(title)
-	s.WriteString("  ")
-	s.WriteString(status)
-	s.WriteString("\n")
+	// Calculate inner width for the box
+	boxWidth := m.width - 2 // account for border chars
+	if boxWidth < 30 {
+		boxWidth = 30
+	}
 
-	separator := strings.Repeat("─", 40)
-	s.WriteString(accentLineStyle.Render(separator))
+	titleLen := lipgloss.Width(title)
+	statusLen := lipgloss.Width(status)
+	gap := boxWidth - titleLen - statusLen - 4 // 4 = padding (2 each side)
+	if gap < 2 {
+		gap = 2
+	}
 
-	return s.String()
+	inner := title + strings.Repeat(" ", gap) + status
+
+	box := headerBoxStyle.
+		Width(boxWidth).
+		Render(inner)
+
+	return box
 }
 
 func (m Model) renderConnecting() string {
@@ -866,7 +875,7 @@ func (m Model) renderLogTypeMenu() string {
 }
 
 func (m Model) renderDeploying() string {
-	return fmt.Sprintf("%s ejecutando...\n", m.spinner.View())
+	return fmt.Sprintf("%s running...\n", m.spinner.View())
 }
 
 func (m Model) renderLogs() string {
@@ -901,7 +910,7 @@ func (m Model) renderLogs() string {
 	}
 
 	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render("enter o esc para volver"))
+	s.WriteString(subtitleStyle.Render("enter or esc to go back"))
 
 	return s.String()
 }
@@ -934,7 +943,7 @@ func (m Model) renderLogsStream() string {
 	}
 
 	if len(m.logs) == 0 {
-		s.WriteString(mutedStyle.Render("  conectando al stream...\n"))
+		s.WriteString(mutedStyle.Render("  connecting to stream...\n"))
 	} else {
 		for _, log := range m.logs[start:] {
 			if len(log) > maxWidth {
@@ -946,7 +955,7 @@ func (m Model) renderLogsStream() string {
 	}
 
 	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render(fmt.Sprintf("esc para detener %s %d lineas", IconDot, len(m.logs))))
+	s.WriteString(subtitleStyle.Render(fmt.Sprintf("esc to stop %s %d lines", IconDot, len(m.logs))))
 
 	return s.String()
 }
@@ -1001,7 +1010,7 @@ func (m Model) renderResult() string {
 	s.WriteString(strings.Join(lines, "\n"))
 
 	s.WriteString("\n\n")
-	s.WriteString(subtitleStyle.Render("enter o esc para volver"))
+	s.WriteString(subtitleStyle.Render("enter or esc to go back"))
 
 	return s.String()
 }
