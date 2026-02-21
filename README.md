@@ -14,7 +14,7 @@ Terminal UI tool to deploy and manage projects on remote servers via SSH. Built 
 
 ## Prerequisites
 
-- [Go](https://go.dev/) 1.24.4+
+- [Go](https://go.dev/) 1.24+
 
 ## Setup
 
