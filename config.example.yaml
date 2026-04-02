@@ -1,12 +1,14 @@
-# Copia este archivo como config.yaml y llena tus datos
-
-app_name: "My Deploy"
+app_name: "S4v!0r Deploy"
 
 ssh:
   host: tu-ip-o-dominio
   port: 22
   user: tu-usuario
   identity_file: ~/.ssh/id_rsa  # Ruta a tu llave privada SSH
+  # init_cmd: Comando que se ejecuta antes de cada comando SSH (necesario porque las sesiones
+  # SSH no-interactivas no cargan .bashrc). Usa esto para cargar nvm, agregar bun/pnpm al PATH,
+  # o configurar deploy keys de Git.
+  init_cmd: "source ~/.nvm/nvm.sh && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND='ssh -i ~/.ssh/github_deploy_key -o IdentitiesOnly=yes'"
 
 # Proyectos en el VPS
 projects:
