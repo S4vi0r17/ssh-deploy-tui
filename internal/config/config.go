@@ -10,11 +10,11 @@ import (
 )
 
 type SSHConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port"`
+	User         string `yaml:"user"`
 	IdentityFile string `yaml:"identity_file"`
-	InitCmd  string `yaml:"init_cmd,omitempty"`
+	InitCmd      string `yaml:"init_cmd,omitempty"`
 }
 
 type Project struct {
