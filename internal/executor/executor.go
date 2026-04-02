@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"ssh-deploy-tui/internal/config"
-	"ssh-deploy-tui/internal/ssh"
+	"sdt/internal/config"
+	"sdt/internal/ssh"
 )
 
 type StepResult struct {

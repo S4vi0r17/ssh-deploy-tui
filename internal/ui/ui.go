@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"ssh-deploy-tui/internal/config"
-	"ssh-deploy-tui/internal/executor"
-	"ssh-deploy-tui/internal/ssh"
+	"sdt/internal/config"
+	"sdt/internal/executor"
+	"sdt/internal/ssh"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"

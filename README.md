@@ -11,17 +11,42 @@ Deploy and manage remote projects from your terminal. Built with Go + [Bubble Te
 - **Nginx** — view config, test syntax, reload
 - **Multi-project** — PM2 or static, all from one config
 
-## Quick Start
+## Usage
 
 ```bash
 git clone https://github.com/S4vi0r17/ssh-deploy-tui.git
 cd ssh-deploy-tui
-go mod tidy
+go mod tidy                          # download dependencies
 cp config.example.yaml config.yaml  # edit with your data
-go run .
+go run .                             # run without installing
+```
+
+### Global install (optional)
+
+```bash
+go install .  # builds and copies "sdt" binary to ~/go/bin/
+sdt           # run from anywhere
 ```
 
 > Requires [Go](https://go.dev/) 1.24+
+
+## Config location
+
+`sdt` looks for config in this order:
+
+1. `./config.yaml` (current directory)
+2. `~/.config/sdt/config.yaml`
+
+```bash
+# Option A: use in project directory
+cp config.example.yaml config.yaml
+
+# Option B: global install
+mkdir -p ~/.config/sdt
+cp config.example.yaml ~/.config/sdt/config.yaml
+```
+
+Then run `sdt` from anywhere.
 
 ## Configuration
 

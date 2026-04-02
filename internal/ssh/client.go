@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"ssh-deploy-tui/internal/config"
+	"sdt/internal/config"
 
 	"golang.org/x/crypto/ssh"
 )
