@@ -33,7 +33,7 @@ const (
 	viewScrollable
 )
 
-const AppVersion = "1.2.1"
+const AppVersion = "1.5.1"
 
 type menuItem struct {
 	title       string
