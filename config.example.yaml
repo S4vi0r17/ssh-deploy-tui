@@ -6,8 +6,7 @@ ssh:
   host: tu-ip-o-dominio
   port: 22
   user: tu-usuario
-  password: "tu-password"
-  # key_path: ~/.ssh/id_rsa  # Alternativa: usar llave SSH
+  identity_file: ~/.ssh/id_rsa  # Ruta a tu llave privada SSH
 
 # Proyectos en el VPS
 projects:

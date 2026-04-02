@@ -13,8 +13,7 @@ type SSHConfig struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
 	User     string `yaml:"user"`
-	KeyPath  string `yaml:"key_path"`
-	Password string `yaml:"password,omitempty"`
+	IdentityFile string `yaml:"identity_file"`
 	InitCmd  string `yaml:"init_cmd,omitempty"`
 }
 
@@ -53,7 +52,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	cfg.SSH.KeyPath = expandHomeDir(cfg.SSH.KeyPath)
+	cfg.SSH.IdentityFile = expandHomeDir(cfg.SSH.IdentityFile)
 
 	if cfg.SSH.Port == 0 {
 		cfg.SSH.Port = 22

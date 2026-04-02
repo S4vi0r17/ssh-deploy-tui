@@ -10,7 +10,7 @@ Terminal UI tool to deploy and manage projects on remote servers via SSH. Built 
 - **PM2 management** — view status, stream real-time logs, restart services
 - **Nginx management** — view/copy config, test syntax, reload
 - **Multi-project support** — manage multiple projects (PM2 or static) from a single config
-- **SSH connection** — password or key-based authentication
+- **SSH connection** — key-based authentication (identity file)
 
 ## Prerequisites
 
@@ -47,8 +47,7 @@ ssh:
   host: your-server-ip
   port: 22
   user: your-user
-  password: 'your-password'
-  # key_path: ~/.ssh/id_rsa
+  identity_file: ~/.ssh/id_rsa  # Path to your SSH private key
 
 projects:
   my-backend:

@@ -24,8 +24,8 @@ func NewClient(cfg *config.SSHConfig) *Client {
 func (c *Client) Connect() error {
 	var authMethods []ssh.AuthMethod
 
-	if c.config.KeyPath != "" {
-		key, err := os.ReadFile(c.config.KeyPath)
+	if c.config.IdentityFile != "" {
+		key, err := os.ReadFile(c.config.IdentityFile)
 		if err == nil {
 			signer, err := ssh.ParsePrivateKey(key)
 			if err == nil {
@@ -34,12 +34,8 @@ func (c *Client) Connect() error {
 		}
 	}
 
-	if c.config.Password != "" {
-		authMethods = append(authMethods, ssh.Password(c.config.Password))
-	}
-
 	if len(authMethods) == 0 {
-		return fmt.Errorf("no hay metodo de autenticacion configurado (key_path o password)")
+		return fmt.Errorf("no hay metodo de autenticacion configurado: configura identity_file en config.yaml")
 	}
 
 	sshConfig := &ssh.ClientConfig{

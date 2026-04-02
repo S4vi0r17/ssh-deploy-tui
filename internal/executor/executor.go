@@ -9,7 +9,7 @@ import (
 	"ssh-deploy-tui/internal/ssh"
 )
 
-type StepResult struct 
+type StepResult struct {
 	Step    string
 	Success bool
 	Output  string
