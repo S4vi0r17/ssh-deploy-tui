@@ -5,10 +5,14 @@ ssh:
   port: 22
   user: tu-usuario
   identity_file: ~/.ssh/id_rsa  # Ruta a tu llave privada SSH
-  # init_cmd: Comando que se ejecuta antes de cada comando SSH (necesario porque las sesiones
-  # SSH no-interactivas no cargan .bashrc). Usa esto para cargar nvm, agregar bun/pnpm al PATH,
-  # o configurar deploy keys de Git.
-  init_cmd: "source ~/.nvm/nvm.sh && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND='ssh -i ~/.ssh/github_deploy_key -o IdentitiesOnly=yes'"
+  # init_cmd se ejecuta antes de cada comando SSH porque las sesiones no-interactivas
+  # no cargan .zshrc/.bashrc. Adapta segun tu entorno:
+  #
+  # Con fnm (recomendado):
+  init_cmd: "export PATH=/home/tu-usuario/.local/share/fnm:$PATH && eval \"$(fnm env --shell zsh)\" && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND='ssh -i ~/.ssh/github_deploy_key -o IdentitiesOnly=yes'"
+  #
+  # Con nvm:
+  # init_cmd: "source ~/.nvm/nvm.sh && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND='ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes'"
 
 # Proyectos en el VPS
 projects:
