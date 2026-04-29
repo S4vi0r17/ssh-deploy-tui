@@ -9,6 +9,7 @@ import (
 	"sdt/internal/config"
 	"sdt/internal/executor"
 	"sdt/internal/ssh"
+	"sdt/internal/tunnel"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -31,6 +32,7 @@ const (
 	viewNginx
 	viewResult
 	viewScrollable
+	viewTunnels
 )
 
 const AppVersion = "1.5.1"
@@ -45,6 +47,7 @@ var mainMenuItems = []menuItem{
 	{title: "View logs", description: "Show PM2 logs"},
 	{title: "Restart service", description: "Restart without rebuild"},
 	{title: "PM2 Status", description: "View process status"},
+	{title: "Tunnels", description: "Manage SSH port forwarding"},
 	{title: "Nginx", description: "Reload or test config"},
 	{title: "Exit", description: "Close application"},
 }
@@ -112,6 +115,8 @@ type Model struct {
 	viewportTitle string
 	// Splash screen
 	splashTick int
+	// Tunnels
+	tunnels []*tunnel.Tunnel
 }
 
 // Messages
@@ -139,6 +144,9 @@ type scrollableContentMsg struct {
 	err     error
 }
 type splashTickMsg struct{}
+type tunnelResultMsg struct {
+	err error
+}
 
 func NewModel(cfg *config.Config) Model {
 	s := spinner.New()
@@ -217,6 +225,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.result = fmt.Sprintf("SSH connection error:\n\n%s\n\nCheck your config.yaml", msg.err.Error())
 			m.resultSuccess = false
 		} else {
+			conn := m.sshClient.GetConn()
+			m.tunnels = make([]*tunnel.Tunnel, len(m.config.Tunnels))
+			for i, tc := range m.config.Tunnels {
+				m.tunnels[i] = tunnel.New(tc.Name, tc.LocalPort, tc.RemoteHost, tc.RemotePort, conn)
+				if tc.AutoStart {
+					m.tunnels[i].Start()
+				}
+			}
 			m.state = viewMainMenu
 		}
 		return m, nil
@@ -272,6 +288,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewportReady = true
 		m.viewportTitle = msg.title
 		m.state = viewScrollable
+		return m, nil
+
+	case tunnelResultMsg:
+		if msg.err != nil {
+			m.state = viewResult
+			m.result = fmt.Sprintf("Error al iniciar túnel:\n\n%v", msg.err)
+			m.resultSuccess = false
+			return m, nil
+		}
+		m.state = viewTunnels
 		return m, nil
 	}
 
@@ -368,6 +394,8 @@ func (m Model) incrementCursor() int {
 		max = len(logTypeMenuItems) - 1
 	case viewNginx:
 		max = len(nginxMenuItems) - 1
+	case viewTunnels:
+		max = len(m.tunnels) // Back item is at index len(m.tunnels)
 	}
 
 	if m.cursor < max {
@@ -386,6 +414,8 @@ func (m Model) handleSelect() (tea.Model, tea.Cmd) {
 		return m.handleLogTypeSelect()
 	case viewNginx:
 		return m.handleNginxSelect()
+	case viewTunnels:
+		return m.handleTunnelSelect()
 	case viewResult, viewLogs, viewStatus:
 		if m.connectionError != "" {
 			return m, tea.Quit
@@ -420,10 +450,16 @@ func (m Model) handleMainMenuSelect() (tea.Model, tea.Cmd) {
 	case 3: // Status
 		m.state = viewDeploying
 		return m, m.getStatus()
-	case 4: // Nginx
+	case 4: // Tunnels
+		m.state = viewTunnels
+		m.cursor = 0
+	case 5: // Nginx
 		m.state = viewNginx
 		m.cursor = 0
-	case 5: // Exit
+	case 6: // Exit
+		for _, t := range m.tunnels {
+			t.Stop()
+		}
 		m.sshClient.Close()
 		return m, tea.Quit
 	}
@@ -502,6 +538,25 @@ func (m Model) handleNginxSelect() (tea.Model, tea.Cmd) {
 		m.cursor = 0
 	}
 	return m, nil
+}
+
+func (m Model) handleTunnelSelect() (tea.Model, tea.Cmd) {
+	// Back item
+	if m.cursor == len(m.tunnels) {
+		m.state = viewMainMenu
+		m.cursor = 0
+		return m, nil
+	}
+
+	t := m.tunnels[m.cursor]
+	return m, func() tea.Msg {
+		if t.IsActive() {
+			t.Stop()
+			return tunnelResultMsg{}
+		}
+		err := t.Start()
+		return tunnelResultMsg{err: err}
+	}
 }
 
 // Commands
@@ -660,6 +715,8 @@ func (m Model) View() string {
 		s.WriteString(m.renderLogsStream())
 	case viewNginx:
 		s.WriteString(m.renderNginxMenu())
+	case viewTunnels:
+		s.WriteString(m.renderTunnelsMenu())
 	case viewResult:
 		s.WriteString(m.renderResult())
 	case viewScrollable:
@@ -1029,6 +1086,62 @@ func (m Model) renderScrollable() string {
 	s.WriteString("\n\n")
 
 	s.WriteString(m.viewport.View())
+
+	return s.String()
+}
+
+func (m Model) renderTunnelsMenu() string {
+	var s strings.Builder
+	s.WriteString("\n")
+	s.WriteString(subtitleStyle.Render("  tunnel management"))
+	s.WriteString("\n\n")
+
+	if len(m.tunnels) == 0 {
+		s.WriteString(mutedStyle.Render("  no tunnels configured\n"))
+		s.WriteString(mutedStyle.Render("  agrega tunnels: en config.yaml\n"))
+		s.WriteString("\n")
+	}
+
+	icons := []string{"◈", "◉", "◎", "◐", "◆"}
+	for i, t := range m.tunnels {
+		cfg := m.config.Tunnels[i]
+		icon := icons[i%len(icons)]
+		label := fmt.Sprintf("%s  :%d → %s:%d", cfg.Name, cfg.LocalPort, cfg.RemoteHost, cfg.RemotePort)
+
+		var statusStr string
+		if t.IsActive() {
+			statusStr = successStyle.Render("● active")
+		} else {
+			statusStr = mutedStyle.Render("○ inactive")
+		}
+
+		if i == m.cursor {
+			action := "deactivate"
+			if !t.IsActive() {
+				action = "activate"
+			}
+			s.WriteString(fmt.Sprintf("  %s %s %s  %s\n",
+				selectedStyle.Render(IconArrow),
+				selectedStyle.Render(icon),
+				selectedStyle.Render(label),
+				statusStr))
+			s.WriteString(fmt.Sprintf("      %s\n", subtitleStyle.Render(fmt.Sprintf("enter to %s", action))))
+		} else {
+			s.WriteString(fmt.Sprintf("    %s %s  %s\n",
+				mutedStyle.Render(icon),
+				normalStyle.Render(label),
+				statusStr))
+		}
+	}
+
+	backIdx := len(m.tunnels)
+	if backIdx == m.cursor {
+		s.WriteString(fmt.Sprintf("  %s %s\n",
+			selectedStyle.Render(IconArrow),
+			selectedStyle.Render("← Back")))
+	} else {
+		s.WriteString(fmt.Sprintf("    %s\n", mutedStyle.Render("← Back")))
+	}
 
 	return s.String()
 }

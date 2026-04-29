@@ -34,11 +34,20 @@ type NginxConfig struct {
 	SitesPath  string `yaml:"sites_path"`
 }
 
+type TunnelConfig struct {
+	Name       string `yaml:"name"`
+	LocalPort  int    `yaml:"local_port"`
+	RemoteHost string `yaml:"remote_host"`
+	RemotePort int    `yaml:"remote_port"`
+	AutoStart  bool   `yaml:"auto_start"`
+}
+
 type Config struct {
 	AppName  string             `yaml:"app_name"`
 	SSH      SSHConfig          `yaml:"ssh"`
 	Projects map[string]Project `yaml:"projects"`
 	Nginx    NginxConfig        `yaml:"nginx"`
+	Tunnels  []TunnelConfig     `yaml:"tunnels,omitempty"`
 }
 
 func Load(path string) (*Config, error) {

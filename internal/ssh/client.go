@@ -99,6 +99,10 @@ func (c *Client) GetHost() string {
 	return c.config.Host
 }
 
+func (c *Client) GetConn() *ssh.Client {
+	return c.conn
+}
+
 // RunStream ejecuta un comando y envia el output linea por linea al canal
 func (c *Client) RunStream(command string, outputCh chan<- string, stopCh <-chan struct{}) error {
 	if c.conn == nil {

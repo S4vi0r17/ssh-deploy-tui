@@ -9,6 +9,7 @@ Deploy and manage remote projects from your terminal. Built with Go + [Bubble Te
 - **One-step deploy** — git pull, install, build and restart
 - **PM2** — status, real-time logs, restart
 - **Nginx** — view config, test syntax, reload
+- **Tunnels** — SSH port forwarding (e.g. remote DB on localhost)
 - **Multi-project** — PM2 or static, all from one config
 
 ## Usage
@@ -85,6 +86,14 @@ projects:
 nginx:
   config_path: /etc/nginx/nginx.conf
   sites_path: /etc/nginx/sites-available
+
+# SSH tunnels (local port forwarding)
+tunnels:
+  - name: "MySQL"
+    local_port: 3306      # port on your machine
+    remote_host: "127.0.0.1"  # host as seen from the server
+    remote_port: 3306     # port on the server
+    auto_start: true      # activate on connect
 ```
 
 ### `init_cmd`
