@@ -52,7 +52,7 @@ Then run `sdt` from anywhere.
 ## Configuration
 
 ```yaml
-app_name: 'My Deploy'
+app_name: "My Deploy"
 
 ssh:
   host: your-server-ip
@@ -64,7 +64,7 @@ ssh:
 
 projects:
   my-backend:
-    name: 'My Backend'
+    name: "My Backend"
     path: /var/www/html/my-backend
     type: pm2 # managed by PM2
     branch: main
@@ -74,7 +74,7 @@ projects:
     pm2_name: my-backend
 
   my-frontend:
-    name: 'My Frontend'
+    name: "My Frontend"
     path: /var/www/html/my-frontend
     type: static # static site (no PM2)
     branch: main
@@ -90,21 +90,21 @@ nginx:
 # SSH tunnels (local port forwarding)
 tunnels:
   - name: "MySQL"
-    local_port: 3306      # port on your machine
-    remote_host: "127.0.0.1"  # host as seen from the server
-    remote_port: 3306     # port on the server
-    auto_start: true      # activate on connect
+    local_port: 3306 # port on your machine
+    remote_host: "127.0.0.1" # host as seen from the server
+    remote_port: 3306 # port on the server
+    auto_start: true # activate on connect
 ```
 
 ### `init_cmd`
 
 Non-interactive SSH sessions don't load `.zshrc`, so `node`, `bun`, `pnpm`, etc. won't be found. `init_cmd` runs before every command to fix that.
 
-| Part                                                        | Why                                |
-| ----------------------------------------------------------- | ---------------------------------- |
+| Part                                                                        | Why                                |
+| --------------------------------------------------------------------------- | ---------------------------------- |
 | `export PATH=$HOME/.local/share/fnm:$PATH && eval "$(fnm env --shell zsh)"` | Load `node` via `fnm`              |
-| `export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH`  | Load `bun`/`pnpm`                  |
-| `export GIT_SSH_COMMAND='ssh -i ...'`                       | Use a deploy key for private repos |
+| `export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH`                  | Load `bun`/`pnpm`                  |
+| `export GIT_SSH_COMMAND='ssh -i ...'`                                       | Use a deploy key for private repos |
 
 If you only need Node with `fnm`:
 

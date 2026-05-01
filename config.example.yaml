@@ -4,12 +4,12 @@ ssh:
   host: tu-ip-o-dominio
   port: 22
   user: tu-usuario
-  identity_file: $HOME/.ssh/id_rsa # Ruta a tu llave privada SSH
+  identity_file: $HOME/.ssh/id_rsa  # Ruta a tu llave privada SSH
   # init_cmd se ejecuta antes de cada comando SSH porque las sesiones no-interactivas
   # no cargan .zshrc. Se asume fnm siempre:
   #
   # Usa fnm con zsh y $HOME para configurar el entorno en shells no interactivos
-  init_cmd: 'export PATH=$HOME/.local/share/fnm:$PATH && eval "$(fnm env --shell zsh)" && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND=''ssh -i $HOME/.ssh/id_rsa -o IdentitiesOnly=yes'''
+  init_cmd: "export PATH=$HOME/.local/share/fnm:$PATH && eval \"$(fnm env --shell zsh)\" && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND='ssh -i $HOME/.ssh/id_rsa -o IdentitiesOnly=yes'"
 
 # Proyectos en el VPS
 projects:
@@ -42,7 +42,7 @@ nginx:
 # Accede desde el menu principal > Tunnels
 tunnels:
   - name: "MySQL CRS"
-    local_port: 3306 # puerto en tu maquina
-    remote_host: "127.0.0.1" # host desde el servidor
-    remote_port: 3306 # puerto en el servidor
-    auto_start: true # activar automaticamente al conectar
+    local_port: 3306      # puerto en tu maquina
+    remote_host: "127.0.0.1"  # host desde el servidor
+    remote_port: 3306     # puerto en el servidor
+    auto_start: true      # activar automaticamente al conectar
