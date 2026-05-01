@@ -14,7 +14,7 @@ Deploy and manage remote projects from your terminal. Built with Go + [Bubble Te
 
 ## Usage
 
-```bash
+```sh
 git clone https://github.com/S4vi0r17/ssh-deploy-tui.git
 cd ssh-deploy-tui
 go mod tidy                          # download dependencies
@@ -24,7 +24,7 @@ go run .                             # run without installing
 
 ### Global install (optional)
 
-```bash
+```sh
 go install .  # builds and copies "sdt" binary to ~/go/bin/
 sdt           # run from anywhere
 ```
@@ -38,7 +38,7 @@ sdt           # run from anywhere
 1. `./config.yaml` (current directory)
 2. `~/.config/sdt/config.yaml`
 
-```bash
+```sh
 # Option A: use in project directory
 cp config.example.yaml config.yaml
 
@@ -58,9 +58,9 @@ ssh:
   host: your-server-ip
   port: 22
   user: your-user
-  identity_file: ~/.ssh/id_rsa
-  # Runs before every SSH command (non-interactive sessions don't load .bashrc)
-  init_cmd: "source ~/.nvm/nvm.sh && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND='ssh -i ~/.ssh/github_deploy_key -o IdentitiesOnly=yes'"
+  identity_file: $HOME/.ssh/id_rsa
+  # Runs before every SSH command (non-interactive sessions don't load .zshrc)
+  init_cmd: "export PATH=$HOME/.local/share/fnm:$PATH && eval \"$(fnm env --shell zsh)\" && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND='ssh -i $HOME/.ssh/github_deploy_key -o IdentitiesOnly=yes'"
 
 projects:
   my-backend:
@@ -98,18 +98,18 @@ tunnels:
 
 ### `init_cmd`
 
-Non-interactive SSH sessions don't load `.bashrc`, so `node`, `bun`, `pnpm`, etc. won't be found. `init_cmd` runs before every command to fix that.
+Non-interactive SSH sessions don't load `.zshrc`, so `node`, `bun`, `pnpm`, etc. won't be found. `init_cmd` runs before every command to fix that.
 
-| Part                                  | Why                                |
-| ------------------------------------- | ---------------------------------- |
-| `source ~/.nvm/nvm.sh`                | Load `node`/`npm`                  |
-| `export PATH=...bun...pnpm...`        | Load `bun`/`pnpm`                  |
-| `export GIT_SSH_COMMAND='ssh -i ...'` | Use a deploy key for private repos |
+| Part                                                        | Why                                |
+| ----------------------------------------------------------- | ---------------------------------- |
+| `export PATH=$HOME/.local/share/fnm:$PATH && eval "$(fnm env --shell zsh)"` | Load `node` via `fnm`              |
+| `export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH`  | Load `bun`/`pnpm`                  |
+| `export GIT_SSH_COMMAND='ssh -i ...'`                       | Use a deploy key for private repos |
 
-Adapt to your setup. If you only use `npm`:
+If you only need Node with `fnm`:
 
 ```yaml
-init_cmd: 'source ~/.nvm/nvm.sh'
+init_cmd: "export PATH=$HOME/.local/share/fnm:$PATH && eval \"$(fnm env --shell zsh)\""
 ```
 
 ## Tech Stack
