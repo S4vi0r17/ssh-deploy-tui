@@ -6,7 +6,6 @@
 - [ ] Terminal SSH interactiva - Mini shell para comandos ad-hoc
 
 ## Deploy
-- [ ] Rollback - Volver al commit anterior si un deploy falla
 - [ ] Confirmación pre-deploy - Mostrar git log de cambios antes de ejecutar
 - [ ] Deploy selectivo - Elegir pasos: solo pull, build, restart, etc.
 - [ ] Historial de deploys - Log local con fecha, proyecto y resultado
@@ -29,5 +28,4 @@
 - [ ] Búsqueda de logs estilo vim (/)
 
 ## Seguridad
-- [ ] Backup antes de deploy (snapshot del directorio)
 - [ ] Health check HTTP post-deploy

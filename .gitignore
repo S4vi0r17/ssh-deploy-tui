@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# Binario compilado de este proyecto (go build -> ./sdt)
+/sdt
+
 # Test binary, built with `go test -c`
 *.test
 

@@ -16,6 +16,14 @@ type StepResult struct {
 	Error   string
 }
 
+// StepProgress se emite por el canal de Deploy para que la UI muestre, en vivo,
+// en que paso va el deploy. Done/Failed indican el resultado del paso.
+type StepProgress struct {
+	Name   string
+	Done   bool
+	Failed bool
+}
+
 type Executor struct {
 	project   config.Project
 	sshClient *ssh.Client
@@ -30,7 +38,7 @@ func New(project config.Project, sshClient *ssh.Client) *Executor {
 	}
 }
 
-func (e *Executor) Deploy(outputChan chan<- string) error {
+func (e *Executor) Deploy(progress chan<- StepProgress) error {
 	steps := []struct {
 		name string
 		fn   func() (string, error)
@@ -65,7 +73,7 @@ func (e *Executor) Deploy(outputChan chan<- string) error {
 	}
 
 	for _, step := range steps {
-		outputChan <- fmt.Sprintf("ejecutando %s...", step.name)
+		progress <- StepProgress{Name: step.name} // running
 
 		output, err := step.fn()
 		if err != nil {
@@ -75,7 +83,7 @@ func (e *Executor) Deploy(outputChan chan<- string) error {
 				Output:  output,
 				Error:   err.Error(),
 			})
-			outputChan <- fmt.Sprintf("error %s: %s", step.name, err.Error())
+			progress <- StepProgress{Name: step.name, Failed: true}
 			return err
 		}
 
@@ -84,7 +92,7 @@ func (e *Executor) Deploy(outputChan chan<- string) error {
 			Success: true,
 			Output:  output,
 		})
-		outputChan <- fmt.Sprintf("completado %s", step.name)
+		progress <- StepProgress{Name: step.name, Done: true}
 	}
 
 	return nil

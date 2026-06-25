@@ -117,6 +117,21 @@ type Model struct {
 	splashTick int
 	// Tunnels
 	tunnels []*tunnel.Tunnel
+	// Deploy progress (live steps)
+	deploySteps []deployStep
+	deployChan  chan tea.Msg
+}
+
+// Estados de un paso de deploy para el render en vivo.
+const (
+	stepRunning = iota
+	stepDone
+	stepFailed
+)
+
+type deployStep struct {
+	name   string
+	status int
 }
 
 // Messages
@@ -124,6 +139,10 @@ type sshConnectedMsg struct{ err error }
 type deployDoneMsg struct {
 	success bool
 	message string
+}
+type deployStepMsg struct {
+	name   string
+	status int
 }
 type logsMsg struct {
 	logs []string
@@ -237,10 +256,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case deployStepMsg:
+		found := false
+		for i := range m.deploySteps {
+			if m.deploySteps[i].name == msg.name {
+				m.deploySteps[i].status = msg.status
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.deploySteps = append(m.deploySteps, deployStep{name: msg.name, status: msg.status})
+		}
+		// Sigue escuchando el siguiente paso/resultado.
+		return m, waitForDeploy(m.deployChan)
+
 	case deployDoneMsg:
 		m.state = viewResult
 		m.result = msg.message
 		m.resultSuccess = msg.success
+		m.deploySteps = nil
 		return m, nil
 
 	case logsMsg:
@@ -474,7 +509,12 @@ func (m Model) handleProjectSelect() (tea.Model, tea.Cmd) {
 	case "deploy":
 		m.state = viewDeploying
 		m.logs = []string{}
-		return m, m.doDeploy(project)
+		m.deploySteps = nil
+		m.deployChan = make(chan tea.Msg, 64)
+		return m, tea.Batch(
+			deployRunner(project, m.sshClient, m.deployChan),
+			waitForDeploy(m.deployChan),
+		)
 	case "logs":
 		if project.Type != "pm2" {
 			m.state = viewResult
@@ -560,34 +600,60 @@ func (m Model) handleTunnelSelect() (tea.Model, tea.Cmd) {
 }
 
 // Commands
-func (m Model) doDeploy(project config.Project) tea.Cmd {
+
+// deployRunner lanza el deploy en segundo plano y va empujando cada paso (y el
+// resultado final) al canal `ch`. La UI los recoge con waitForDeploy.
+func deployRunner(project config.Project, sshClient *ssh.Client, ch chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		exec := executor.New(project, m.sshClient)
-		outputChan := make(chan string, 10)
-
 		go func() {
-			for range outputChan {
+			exec := executor.New(project, sshClient)
+			progress := make(chan executor.StepProgress, 64)
+			errCh := make(chan error, 1)
+
+			go func() {
+				errCh <- exec.Deploy(progress)
+				close(progress)
+			}()
+
+			// Reenvia cada paso a la UI en vivo.
+			for p := range progress {
+				status := stepRunning
+				if p.Failed {
+					status = stepFailed
+				} else if p.Done {
+					status = stepDone
+				}
+				ch <- deployStepMsg{name: p.Name, status: status}
 			}
+
+			// Deploy terminado: arma el resumen final.
+			err := <-errCh
+			if err != nil {
+				ch <- deployDoneMsg{success: false, message: fmt.Sprintf("Error: %v", err)}
+				return
+			}
+
+			results := exec.GetResults()
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("deploy of %s\n\n", project.Name))
+			for _, r := range results {
+				if r.Success {
+					sb.WriteString(fmt.Sprintf("  %s %s\n", IconCheck, r.Step))
+				} else {
+					sb.WriteString(fmt.Sprintf("  %s %s: %s\n", IconCross, r.Step, r.Error))
+				}
+			}
+			ch <- deployDoneMsg{success: true, message: sb.String()}
 		}()
+		return nil
+	}
+}
 
-		err := exec.Deploy(outputChan)
-		close(outputChan)
-
-		if err != nil {
-			return deployDoneMsg{success: false, message: fmt.Sprintf("Error: %v", err)}
-		}
-
-		results := exec.GetResults()
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("deploy of %s\n\n", project.Name))
-		for _, r := range results {
-			if r.Success {
-				sb.WriteString(fmt.Sprintf("  %s %s\n", IconCheck, r.Step))
-			} else {
-				sb.WriteString(fmt.Sprintf("  %s %s: %s\n", IconCross, r.Step, r.Error))
-			}
-		}
-		return deployDoneMsg{success: true, message: sb.String()}
+// waitForDeploy bloquea hasta recibir el siguiente mensaje del deploy. Tras cada
+// paso, Update vuelve a invocarlo para seguir escuchando hasta el deployDoneMsg.
+func waitForDeploy(ch chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
 	}
 }
 
@@ -932,7 +998,24 @@ func (m Model) renderLogTypeMenu() string {
 }
 
 func (m Model) renderDeploying() string {
-	return fmt.Sprintf("%s running...\n", m.spinner.View())
+	// Acciones genericas (status, nginx, logs) no tienen pasos: spinner simple.
+	if len(m.deploySteps) == 0 {
+		return fmt.Sprintf("%s running...\n", m.spinner.View())
+	}
+
+	var s strings.Builder
+	s.WriteString("\n  Desplegando...\n\n")
+	for _, st := range m.deploySteps {
+		switch st.status {
+		case stepDone:
+			s.WriteString(fmt.Sprintf("  %s %s\n", IconCheck, st.name))
+		case stepFailed:
+			s.WriteString(fmt.Sprintf("  %s %s\n", IconCross, st.name))
+		default:
+			s.WriteString(fmt.Sprintf("  %s %s\n", m.spinner.View(), st.name))
+		}
+	}
+	return s.String()
 }
 
 func (m Model) renderLogs() string {
