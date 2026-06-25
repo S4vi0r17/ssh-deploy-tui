@@ -24,6 +24,7 @@ type Project struct {
 	Branch         string `yaml:"branch"`
 	PackageManager string `yaml:"package_manager"`
 	InstallCmd     string `yaml:"install_cmd"`
+	TestCmd        string `yaml:"test_cmd,omitempty"`
 	BuildCmd       string `yaml:"build_cmd"`
 	PM2Name        string `yaml:"pm2_name,omitempty"`
 	OutputDir      string `yaml:"output_dir,omitempty"`

@@ -35,10 +35,23 @@ func (e *Executor) Deploy(outputChan chan<- string) error {
 		name string
 		fn   func() (string, error)
 	}{
-		{"Git Pull", e.gitPull},
+		{"Actualizar codigo", e.gitPull},
 		{"Instalar dependencias", e.installDeps},
-		{"Build", e.build},
 	}
+
+	// Tests opcionales: solo si el proyecto define test_cmd. Si fallan, el deploy
+	// se aborta ANTES del build (no se toca nada en el servidor).
+	if strings.TrimSpace(e.project.TestCmd) != "" {
+		steps = append(steps, struct {
+			name string
+			fn   func() (string, error)
+		}{"Ejecutar tests", e.runTests})
+	}
+
+	steps = append(steps, struct {
+		name string
+		fn   func() (string, error)
+	}{"Build", e.build})
 
 	if e.project.Type == "pm2" {
 		steps = append(steps, struct {
@@ -77,19 +90,30 @@ func (e *Executor) Deploy(outputChan chan<- string) error {
 	return nil
 }
 
+// gitPull hace un "pull especial": en vez de `git pull` (que puede fallar por
+// conflictos si el servidor tiene cambios locales), trae el remoto y fuerza el
+// estado del working tree a coincidir EXACTAMENTE con origin/<branch>.
 func (e *Executor) gitPull() (string, error) {
-	cmd := fmt.Sprintf("cd %s && git checkout %s", e.project.Path, e.project.Branch)
-	_, err := e.sshClient.Run(cmd)
-	if err != nil {
-		return "", fmt.Errorf("checkout: %v", err)
-	}
-
-	cmd = fmt.Sprintf("cd %s && git pull origin %s", e.project.Path, e.project.Branch)
+	cmd := fmt.Sprintf(
+		"cd %s && git fetch origin %s && git checkout %s && git reset --hard origin/%s",
+		e.project.Path, e.project.Branch, e.project.Branch, e.project.Branch,
+	)
 	out, err := e.sshClient.Run(cmd)
 	if err != nil {
-		return "", fmt.Errorf("pull: %v", err)
+		return out, fmt.Errorf("git update: %v", err)
 	}
 
+	return out, nil
+}
+
+// runTests ejecuta la suite de tests del proyecto. Solo se invoca cuando
+// test_cmd esta definido (ver Deploy). Un fallo aborta el deploy.
+func (e *Executor) runTests() (string, error) {
+	cmd := fmt.Sprintf("cd %s && %s", e.project.Path, e.project.TestCmd)
+	out, err := e.sshClient.Run(cmd)
+	if err != nil {
+		return out, err
+	}
 	return out, nil
 }
 
@@ -102,12 +126,48 @@ func (e *Executor) installDeps() (string, error) {
 	return out, nil
 }
 
+// build construye el proyecto con respaldo y rollback automaticos.
+//
+// Si output_dir esta definido: respalda el build anterior, construye, y si el
+// build falla restaura el respaldo (el sitio sigue sirviendo la version previa).
+// Si el build tiene exito, borra el respaldo. Replica el deploy.yml del CI.
+//
+// Si output_dir no esta definido, simplemente construye (sin red de seguridad).
 func (e *Executor) build() (string, error) {
-	cmd := fmt.Sprintf("cd %s && %s", e.project.Path, e.project.BuildCmd)
-	out, err := e.sshClient.Run(cmd)
+	path := e.project.Path
+	dir := strings.TrimSpace(e.project.OutputDir)
+	withBackup := dir != ""
+
+	if withBackup {
+		// Respaldar build anterior. `|| true` para no fallar si no existe aun.
+		backup := fmt.Sprintf(
+			"cd %s && rm -rf %s.backup && { cp -r %s %s.backup 2>/dev/null || true; }",
+			path, dir, dir, dir,
+		)
+		if out, err := e.sshClient.Run(backup); err != nil {
+			return out, fmt.Errorf("respaldo: %v", err)
+		}
+	}
+
+	out, err := e.sshClient.Run(fmt.Sprintf("cd %s && %s", path, e.project.BuildCmd))
 	if err != nil {
+		if withBackup {
+			// Build fallido: restaurar el build anterior.
+			restore := fmt.Sprintf(
+				"cd %s && rm -rf %s && { mv %s.backup %s 2>/dev/null || true; }",
+				path, dir, dir, dir,
+			)
+			e.sshClient.Run(restore) // best-effort: ya estamos en el camino de error
+			return out, fmt.Errorf("build fallido, se restauro el build anterior: %v", err)
+		}
 		return out, err
 	}
+
+	if withBackup {
+		// Build OK: descartar el respaldo.
+		e.sshClient.Run(fmt.Sprintf("cd %s && rm -rf %s.backup", path, dir))
+	}
+
 	return out, nil
 }
 

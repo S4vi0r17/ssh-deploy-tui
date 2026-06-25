@@ -20,8 +20,15 @@ projects:
     branch: main
     package_manager: pnpm
     install_cmd: pnpm install
+    # test_cmd es OPCIONAL: si se define, los tests se corren tras instalar y
+    # antes del build. Si fallan, el deploy se aborta (no se toca el servidor).
+    # Omitelo para saltar los tests.
+    test_cmd: pnpm test
     build_cmd: pnpm build
     pm2_name: mi-backend
+    # output_dir activa el backup+rollback del build tambien en proyectos pm2
+    # (ej. dist). Omitelo si el backend no tiene carpeta de build.
+    # output_dir: dist
 
   mi-frontend:
     name: "Mi Frontend"
@@ -30,7 +37,9 @@ projects:
     branch: main
     package_manager: bun
     install_cmd: bun install
+    # test_cmd: bun test   # opcional
     build_cmd: bun run build
+    # output_dir: se respalda antes del build y se restaura si el build falla.
     output_dir: dist
 
 # Configuracion de Nginx

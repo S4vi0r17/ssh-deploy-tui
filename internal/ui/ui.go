@@ -43,7 +43,7 @@ type menuItem struct {
 }
 
 var mainMenuItems = []menuItem{
-	{title: "Deploy project", description: "Pull, install, build and restart"},
+	{title: "Deploy project", description: "Update, install, test, build (con backup) y restart"},
 	{title: "View logs", description: "Show PM2 logs"},
 	{title: "Restart service", description: "Restart without rebuild"},
 	{title: "PM2 Status", description: "View process status"},
