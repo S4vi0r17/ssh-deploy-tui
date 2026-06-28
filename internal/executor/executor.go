@@ -69,7 +69,7 @@ func (e *Executor) Deploy(progress chan<- StepProgress) error {
 		steps = append(steps, struct {
 			name string
 			fn   func() (string, error)
-		}{"Restart PM2", e.restartPM2})
+		}{"Reload PM2 (zero-downtime)", e.reloadPM2})
 	}
 
 	for _, step := range steps {
@@ -181,6 +181,28 @@ func (e *Executor) build() (string, error) {
 
 func (e *Executor) flushPM2() (string, error) {
 	out, err := e.sshClient.Run(fmt.Sprintf("pm2 flush %s", e.project.PM2Name))
+	if err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// reloadPM2 recarga el proceso sin downtime usando `pm2 reload`.
+//
+// A diferencia de `pm2 restart` (que mata y vuelve a levantar el proceso,
+// dejando un hueco de indisponibilidad), `pm2 reload` hace un reinicio
+// graceful: en apps cluster levanta los nuevos workers antes de bajar los
+// viejos (cero downtime real); en apps fork hace el reinicio lo mas suave
+// posible. `--update-env` reaplica las variables de entorno actuales.
+//
+// Si el reload falla (p.ej. el proceso no existe aun en PM2), se cae a
+// `pm2 restart` para que el primer deploy o un proceso caido igual levante.
+func (e *Executor) reloadPM2() (string, error) {
+	cmd := fmt.Sprintf(
+		"pm2 reload %s --update-env || pm2 restart %s --update-env",
+		e.project.PM2Name, e.project.PM2Name,
+	)
+	out, err := e.sshClient.Run(cmd)
 	if err != nil {
 		return out, err
 	}
