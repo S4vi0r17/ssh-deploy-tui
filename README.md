@@ -115,3 +115,7 @@ init_cmd: "export PATH=$HOME/.local/share/fnm:$PATH && eval \"$(fnm env --shell 
 ## Tech Stack
 
 [Go](https://go.dev/) · [Bubble Tea](https://github.com/charmbracelet/bubbletea) · [Lip Gloss](https://github.com/charmbracelet/lipgloss) · [x/crypto/ssh](https://pkg.go.dev/golang.org/x/crypto/ssh)
+
+## Contributing
+
+See [CONVENTIONS.md](CONVENTIONS.md) for code style and comment guidelines.

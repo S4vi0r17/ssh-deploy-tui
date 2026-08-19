@@ -64,7 +64,7 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-// IsAlive pings the connection, bounded to 3s so a dead socket can't hang it.
+// WHY: bounded to 3s — a dead socket may not error until the OS notices.
 func (c *Client) IsAlive() bool {
 	conn := c.GetConn()
 	if conn == nil {
@@ -148,7 +148,6 @@ func (c *Client) GetConn() *ssh.Client {
 	return c.conn
 }
 
-// RunStream ejecuta un comando y envia el output linea por linea al canal
 func (c *Client) RunStream(command string, outputCh chan<- string, stopCh <-chan struct{}) error {
 	conn := c.GetConn()
 	if conn == nil {

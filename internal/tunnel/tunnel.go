@@ -9,8 +9,8 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-// connProvider is implemented by *ssh.Client, kept as an interface to avoid
-// importing that package and to always dial through a live connection.
+// WHY: interface instead of *ssh.Client directly, so a reconnect is picked
+// up automatically without recreating the tunnel.
 type connProvider interface {
 	GetConn() *gossh.Client
 }

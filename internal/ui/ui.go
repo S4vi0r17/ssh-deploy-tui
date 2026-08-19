@@ -68,7 +68,7 @@ var nginxMenuItems = []menuItem{
 	{title: "← Back", description: "Main menu"},
 }
 
-// Shared buffer for streaming logs
+// WHY: written by the stream goroutine, read by the UI tick — needs a mutex.
 type logBuffer struct {
 	lines []string
 	mu    sync.Mutex
@@ -122,7 +122,6 @@ type Model struct {
 	streaming         bool
 }
 
-// Estados de un paso de deploy para el render en vivo.
 const (
 	stepRunning = iota
 	stepDone
@@ -134,7 +133,6 @@ type deployStep struct {
 	status int
 }
 
-// Messages
 type sshConnectedMsg struct{ err error }
 type deployDoneMsg struct {
 	message string
@@ -272,7 +270,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !found {
 			m.deploySteps = append(m.deploySteps, deployStep{name: msg.name, status: msg.status})
 		}
-		// Sigue escuchando el siguiente paso/resultado.
+		// WHY: re-arm so the next step or the final result is also picked up.
 		return m, waitForDeploy(m.deployChan)
 
 	case deployDoneMsg:
@@ -371,7 +369,6 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Scrollable views (nginx config or logs) route keys to the viewport
 	if m.state == viewScrollable || m.state == viewLogs || m.state == viewLogsStream {
 		switch msg.String() {
 		case "q", "esc", "enter", "ctrl+c":
@@ -621,7 +618,7 @@ func (m Model) handleNginxSelect() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTunnelSelect() (tea.Model, tea.Cmd) {
-	// Back item
+	// WHY: "Back" is an implicit row right after the last tunnel, not in m.tunnels.
 	if m.cursor == len(m.tunnels) {
 		m.state = viewMainMenu
 		m.cursor = 0
@@ -660,7 +657,7 @@ func (m Model) startTunnelPortEdit() (tea.Model, tea.Cmd) {
 func (m Model) applyTunnelPortEdit() (tea.Model, tea.Cmd) {
 	port, err := strconv.Atoi(strings.TrimSpace(m.portInput.Value()))
 	if err != nil || port < 1 || port > 65535 {
-		// invalid: stay in edit mode so the user can fix it
+		// WHY: no error UI yet, so just stay in edit mode to let it be fixed.
 		return m, nil
 	}
 	m.editingTunnelPort = false
@@ -690,10 +687,8 @@ func (m Model) ensureSSHConnected() tea.Cmd {
 	}
 }
 
-// Commands
-
-// deployRunner lanza el deploy en segundo plano y va empujando cada paso (y el
-// resultado final) al canal `ch`. La UI los recoge con waitForDeploy.
+// WHY: runs the deploy in its own goroutine and pushes each step (and the
+// final result) to ch; the UI drains it via waitForDeploy.
 func deployRunner(project config.Project, sshClient *ssh.Client, ch chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		go func() {
@@ -706,7 +701,6 @@ func deployRunner(project config.Project, sshClient *ssh.Client, ch chan tea.Msg
 				close(progress)
 			}()
 
-			// Reenvia cada paso a la UI en vivo.
 			for p := range progress {
 				status := stepRunning
 				if p.Failed {
@@ -717,7 +711,6 @@ func deployRunner(project config.Project, sshClient *ssh.Client, ch chan tea.Msg
 				ch <- deployStepMsg{name: p.Name, status: status}
 			}
 
-			// Deploy terminado: arma el resumen final.
 			err := <-errCh
 			if err != nil {
 				ch <- deployDoneMsg{success: false, message: fmt.Sprintf("Error: %v", err)}
@@ -740,8 +733,6 @@ func deployRunner(project config.Project, sshClient *ssh.Client, ch chan tea.Msg
 	}
 }
 
-// waitForDeploy bloquea hasta recibir el siguiente mensaje del deploy. Tras cada
-// paso, Update vuelve a invocarlo para seguir escuchando hasta el deployDoneMsg.
 func waitForDeploy(ch chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return <-ch
@@ -843,8 +834,6 @@ func (m Model) nginxCopyToClipboard() tea.Cmd {
 	}
 }
 
-// ── Views ──
-
 func (m Model) View() string {
 	if m.state == viewSplash {
 		return m.renderSplash()
@@ -890,8 +879,6 @@ func (m Model) View() string {
 	return s.String()
 }
 
-// helpText returns the bottom help bar for the current state: only the
-// keys that actually do something there.
 func (m Model) helpText() string {
 	d := " " + IconDot + " "
 	switch m.state {
@@ -1001,7 +988,6 @@ func (m Model) renderHeader() string {
 		status = statusOfflineStyle.Render(fmt.Sprintf("%s offline", IconCircle))
 	}
 
-	// Calculate inner width for the box
 	boxWidth := m.width - 2 // account for border chars
 	if boxWidth < 30 {
 		boxWidth = 30
@@ -1114,7 +1100,7 @@ func (m Model) renderLogTypeMenu() string {
 }
 
 func (m Model) renderDeploying() string {
-	// Acciones genericas (status, nginx, logs) no tienen pasos: spinner simple.
+	// WHY: status/nginx/logs have no deploySteps, so just show a spinner.
 	if len(m.deploySteps) == 0 {
 		return fmt.Sprintf("%s running...\n", m.spinner.View())
 	}
