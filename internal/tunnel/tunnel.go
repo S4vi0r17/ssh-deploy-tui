@@ -17,7 +17,7 @@ type connProvider interface {
 
 type Tunnel struct {
 	Name       string
-	LocalPort  int // 0 lets the OS pick a free port
+	LocalPort  int
 	RemoteHost string
 	RemotePort int
 	client     connProvider
@@ -43,6 +43,10 @@ func (t *Tunnel) Start() error {
 
 	if t.active {
 		return nil
+	}
+
+	if t.LocalPort <= 0 {
+		return fmt.Errorf("puerto local invalido: %d", t.LocalPort)
 	}
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", t.LocalPort))

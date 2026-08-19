@@ -70,8 +70,8 @@ var nginxMenuItems = []menuItem{
 
 // Shared buffer for streaming logs
 type logBuffer struct {
-	mu    sync.Mutex
 	lines []string
+	mu    sync.Mutex
 }
 
 func (b *logBuffer) append(line string) {
@@ -92,40 +92,34 @@ func (b *logBuffer) getAll() []string {
 }
 
 type Model struct {
-	config          *config.Config
-	sshClient       *ssh.Client
-	state           viewState
-	cursor          int
-	selectedProject string
-	selectedAction  string
-	spinner         spinner.Model
-	logs            []string
-	result          string
-	resultSuccess   bool
-	projectKeys     []string
-	width           int
-	height          int
-	connectionError string
-	// Streaming fields
-	streamStopCh  chan struct{}
-	streaming     bool
-	logBuffer     *logBuffer
-	streamPm2Name string
-	// Viewport for scrolling
-	viewport      viewport.Model
-	viewportReady bool
-	viewportTitle string
-	// true while auto-scroll to the newest log line is active
-	logsFollow bool
-	// Splash screen
-	splashTick int
-	// Tunnels
+	sshClient         *ssh.Client
+	deployChan        chan tea.Msg
+	config            *config.Config
+	logBuffer         *logBuffer
+	streamStopCh      chan struct{}
+	connectionError   string
+	viewportTitle     string
+	selectedProject   string
+	selectedAction    string
+	streamPm2Name     string
+	result            string
+	logs              []string
 	tunnels           []*tunnel.Tunnel
-	editingTunnelPort bool
+	projectKeys       []string
+	deploySteps       []deployStep
 	portInput         textinput.Model
-	// Deploy progress (live steps)
-	deploySteps []deployStep
-	deployChan  chan tea.Msg
+	viewport          viewport.Model
+	spinner           spinner.Model
+	width             int
+	state             viewState
+	height            int
+	cursor            int
+	splashTick        int
+	resultSuccess     bool
+	editingTunnelPort bool
+	logsFollow        bool
+	viewportReady     bool
+	streaming         bool
 }
 
 // Estados de un paso de deploy para el render en vivo.
@@ -143,30 +137,30 @@ type deployStep struct {
 // Messages
 type sshConnectedMsg struct{ err error }
 type deployDoneMsg struct {
-	success bool
 	message string
+	success bool
 }
 type deployStepMsg struct {
 	name   string
 	status int
 }
 type logsMsg struct {
-	logs []string
 	err  error
+	logs []string
 }
 type streamTickMsg struct{}
 type statusMsg struct {
-	status string
 	err    error
+	status string
 }
 type nginxMsg struct {
 	output  string
 	success bool
 }
 type scrollableContentMsg struct {
+	err     error
 	title   string
 	content string
-	err     error
 }
 type splashTickMsg struct{}
 type tunnelResultMsg struct {
@@ -1345,7 +1339,8 @@ func (m Model) renderTunnelPortEdit() string {
 	s.WriteString("\n")
 	s.WriteString(subtitleStyle.Render(fmt.Sprintf("  local port for %s", t.Name)))
 	s.WriteString("\n\n")
-	s.WriteString("  " + m.portInput.View())
+	s.WriteString("  ")
+	s.WriteString(m.portInput.View())
 	s.WriteString("\n\n")
 	s.WriteString(subtitleStyle.Render("  valid range: 1-65535"))
 

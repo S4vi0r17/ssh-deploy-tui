@@ -51,7 +51,7 @@ nginx:
 # Accede desde el menu principal > Tunnels
 tunnels:
   - name: "MySQL CRS"
-    local_port: 3306      # puerto en tu maquina (0 = elegir uno libre automaticamente)
+    local_port: 3306      # puerto en tu maquina
     remote_host: "127.0.0.1"  # host desde el servidor
     remote_port: 3306     # puerto en el servidor
     auto_start: true      # activar automaticamente al conectar
