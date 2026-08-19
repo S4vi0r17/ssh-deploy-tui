@@ -90,7 +90,7 @@ nginx:
 # SSH tunnels (local port forwarding)
 tunnels:
   - name: "MySQL"
-    local_port: 3306 # port on your machine
+    local_port: 3306 # port on your machine (0 = pick a free one automatically)
     remote_host: "127.0.0.1" # host as seen from the server
     remote_port: 3306 # port on the server
     auto_start: true # activate on connect

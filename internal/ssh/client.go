@@ -3,6 +3,7 @@ package ssh
 import (
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"sdt/internal/config"
@@ -12,6 +13,7 @@ import (
 
 type Client struct {
 	config *config.SSHConfig
+	mu     sync.Mutex
 	conn   *ssh.Client
 }
 
@@ -51,23 +53,64 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("error conectando a %s: %v", addr, err)
 	}
 
+	c.mu.Lock()
+	old := c.conn
 	c.conn = conn
+	c.mu.Unlock()
+
+	if old != nil {
+		old.Close()
+	}
 	return nil
 }
 
+// IsAlive pings the connection, bounded to 3s so a dead socket can't hang it.
+func (c *Client) IsAlive() bool {
+	conn := c.GetConn()
+	if conn == nil {
+		return false
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := conn.SendRequest("keepalive@sdt", true, nil)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(3 * time.Second):
+		return false
+	}
+}
+
+func (c *Client) EnsureConnected() error {
+	if c.IsAlive() {
+		return nil
+	}
+	return c.Connect()
+}
+
 func (c *Client) Close() error {
-	if c.conn != nil {
-		return c.conn.Close()
+	c.mu.Lock()
+	conn := c.conn
+	c.conn = nil
+	c.mu.Unlock()
+
+	if conn != nil {
+		return conn.Close()
 	}
 	return nil
 }
 
 func (c *Client) Run(command string) (string, error) {
-	if c.conn == nil {
+	conn := c.GetConn()
+	if conn == nil {
 		return "", fmt.Errorf("no hay conexion SSH activa")
 	}
 
-	session, err := c.conn.NewSession()
+	session, err := conn.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("error creando sesion: %v", err)
 	}
@@ -92,7 +135,7 @@ func (c *Client) RunInDir(dir, command string) (string, error) {
 }
 
 func (c *Client) IsConnected() bool {
-	return c.conn != nil
+	return c.GetConn() != nil
 }
 
 func (c *Client) GetHost() string {
@@ -100,16 +143,19 @@ func (c *Client) GetHost() string {
 }
 
 func (c *Client) GetConn() *ssh.Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.conn
 }
 
 // RunStream ejecuta un comando y envia el output linea por linea al canal
 func (c *Client) RunStream(command string, outputCh chan<- string, stopCh <-chan struct{}) error {
-	if c.conn == nil {
+	conn := c.GetConn()
+	if conn == nil {
 		return fmt.Errorf("no hay conexion SSH activa")
 	}
 
-	session, err := c.conn.NewSession()
+	session, err := conn.NewSession()
 	if err != nil {
 		return fmt.Errorf("error creando sesion: %v", err)
 	}

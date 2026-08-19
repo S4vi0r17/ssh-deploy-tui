@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"sdt/internal/tunnel"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -118,7 +120,9 @@ type Model struct {
 	// Splash screen
 	splashTick int
 	// Tunnels
-	tunnels []*tunnel.Tunnel
+	tunnels           []*tunnel.Tunnel
+	editingTunnelPort bool
+	portInput         textinput.Model
 	// Deploy progress (live steps)
 	deploySteps []deployStep
 	deployChan  chan tea.Msg
@@ -251,10 +255,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.result = fmt.Sprintf("SSH connection error:\n\n%s\n\nCheck your config.yaml", msg.err.Error())
 			m.resultSuccess = false
 		} else {
-			conn := m.sshClient.GetConn()
 			m.tunnels = make([]*tunnel.Tunnel, len(m.config.Tunnels))
 			for i, tc := range m.config.Tunnels {
-				m.tunnels[i] = tunnel.New(tc.Name, tc.LocalPort, tc.RemoteHost, tc.RemotePort, conn)
+				m.tunnels[i] = tunnel.New(tc.Name, tc.LocalPort, tc.RemoteHost, tc.RemotePort, m.sshClient)
 				if tc.AutoStart {
 					m.tunnels[i].Start()
 				}
@@ -347,12 +350,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.state = viewTunnels
 		return m, nil
+
+	default:
+		if m.editingTunnelPort {
+			var cmd tea.Cmd
+			m.portInput, cmd = m.portInput.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil
 }
 
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.state == viewTunnels && m.editingTunnelPort {
+		switch msg.String() {
+		case "esc":
+			m.editingTunnelPort = false
+			return m, nil
+		case "enter":
+			return m.applyTunnelPortEdit()
+		default:
+			var cmd tea.Cmd
+			m.portInput, cmd = m.portInput.Update(msg)
+			return m, cmd
+		}
+	}
+
 	// Scrollable views (nginx config or logs) route keys to the viewport
 	if m.state == viewScrollable || m.state == viewLogs || m.state == viewLogsStream {
 		switch msg.String() {
@@ -405,6 +429,12 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter", " ":
 		return m.handleSelect()
+
+	case "e":
+		if m.state == viewTunnels && m.cursor < len(m.tunnels) {
+			return m.startTunnelPortEdit()
+		}
+		return m, nil
 
 	case "esc":
 		if m.streaming {
@@ -498,6 +528,7 @@ func (m Model) handleMainMenuSelect() (tea.Model, tea.Cmd) {
 	case 4: // Tunnels
 		m.state = viewTunnels
 		m.cursor = 0
+		return m, m.ensureSSHConnected()
 	case 5: // Nginx
 		m.state = viewNginx
 		m.cursor = 0
@@ -604,13 +635,64 @@ func (m Model) handleTunnelSelect() (tea.Model, tea.Cmd) {
 	}
 
 	t := m.tunnels[m.cursor]
+	sshClient := m.sshClient
 	return m, func() tea.Msg {
 		if t.IsActive() {
 			t.Stop()
 			return tunnelResultMsg{}
 		}
+		if err := sshClient.EnsureConnected(); err != nil {
+			return tunnelResultMsg{err: fmt.Errorf("conexion SSH caida, no se pudo reconectar: %v", err)}
+		}
 		err := t.Start()
 		return tunnelResultMsg{err: err}
+	}
+}
+
+func (m Model) startTunnelPortEdit() (tea.Model, tea.Cmd) {
+	t := m.tunnels[m.cursor]
+
+	ti := textinput.New()
+	ti.Placeholder = strconv.Itoa(t.Port())
+	ti.CharLimit = 5
+	ti.Width = 10
+	cmd := ti.Focus()
+
+	m.portInput = ti
+	m.editingTunnelPort = true
+	return m, cmd
+}
+
+func (m Model) applyTunnelPortEdit() (tea.Model, tea.Cmd) {
+	port, err := strconv.Atoi(strings.TrimSpace(m.portInput.Value()))
+	if err != nil || port < 1 || port > 65535 {
+		// invalid: stay in edit mode so the user can fix it
+		return m, nil
+	}
+	m.editingTunnelPort = false
+
+	t := m.tunnels[m.cursor]
+	wasActive := t.IsActive()
+	t.SetLocalPort(port)
+	sshClient := m.sshClient
+
+	return m, func() tea.Msg {
+		if !wasActive {
+			return tunnelResultMsg{}
+		}
+		t.Stop()
+		if err := sshClient.EnsureConnected(); err != nil {
+			return tunnelResultMsg{err: fmt.Errorf("conexion SSH caida, no se pudo reconectar: %v", err)}
+		}
+		return tunnelResultMsg{err: t.Start()}
+	}
+}
+
+func (m Model) ensureSSHConnected() tea.Cmd {
+	sshClient := m.sshClient
+	return func() tea.Msg {
+		sshClient.EnsureConnected()
+		return nil
 	}
 }
 
@@ -797,23 +879,48 @@ func (m Model) View() string {
 	case viewNginx:
 		s.WriteString(m.renderNginxMenu())
 	case viewTunnels:
-		s.WriteString(m.renderTunnelsMenu())
+		if m.editingTunnelPort {
+			s.WriteString(m.renderTunnelPortEdit())
+		} else {
+			s.WriteString(m.renderTunnelsMenu())
+		}
 	case viewResult:
 		s.WriteString(m.renderResult())
 	case viewScrollable:
 		s.WriteString(m.renderScrollable())
 	}
 
-	var help string
-	if m.state == viewScrollable {
-		help = helpStyle.Render("up/down/PgUp/PgDn: scroll | esc/q: back")
-	} else {
-		help = helpStyle.Render("up/down: navigate | enter: select | esc/q: back | ctrl+c: exit")
-	}
 	s.WriteString("\n")
-	s.WriteString(help)
+	s.WriteString(helpStyle.Render(m.helpText()))
 
 	return s.String()
+}
+
+// helpText returns the bottom help bar for the current state: only the
+// keys that actually do something there.
+func (m Model) helpText() string {
+	d := " " + IconDot + " "
+	switch m.state {
+	case viewScrollable, viewLogs:
+		return "↑↓ scroll" + d + "esc back"
+	case viewLogsStream:
+		return "↑↓ scroll" + d + "esc stop"
+	case viewTunnels:
+		if m.editingTunnelPort {
+			return "enter confirm" + d + "esc cancel"
+		}
+		action := "activate"
+		if m.cursor < len(m.tunnels) && m.tunnels[m.cursor].IsActive() {
+			action = "deactivate"
+		}
+		return "↑↓ navigate" + d + "enter " + action + d + "e set port" + d + "esc back"
+	case viewDeploying, viewConnecting:
+		return "please wait..."
+	case viewResult:
+		return "enter/esc back"
+	default:
+		return "↑↓ navigate" + d + "enter select" + d + "esc back" + d + "ctrl+c quit"
+	}
 }
 
 func (m Model) renderSplash() string {
@@ -1078,10 +1185,7 @@ func (m Model) renderLogs() string {
 
 	if m.viewportReady {
 		s.WriteString(m.viewport.View())
-		s.WriteString("\n")
 	}
-
-	s.WriteString(subtitleStyle.Render(fmt.Sprintf("↑/↓ scroll %s enter or esc to go back", IconDot)))
 
 	return s.String()
 }
@@ -1104,7 +1208,7 @@ func (m Model) renderLogsStream() string {
 	if !m.logsFollow {
 		follow = "paused, ↓ to resume"
 	}
-	s.WriteString(subtitleStyle.Render(fmt.Sprintf("esc to stop %s %d lines %s %s", IconDot, len(m.logs), IconDot, follow)))
+	s.WriteString(subtitleStyle.Render(fmt.Sprintf("%d lines %s %s", len(m.logs), IconDot, follow)))
 
 	return s.String()
 }
@@ -1158,9 +1262,6 @@ func (m Model) renderResult() string {
 	}
 	s.WriteString(strings.Join(lines, "\n"))
 
-	s.WriteString("\n\n")
-	s.WriteString(subtitleStyle.Render("enter or esc to go back"))
-
 	return s.String()
 }
 
@@ -1198,7 +1299,11 @@ func (m Model) renderTunnelsMenu() string {
 	for i, t := range m.tunnels {
 		cfg := m.config.Tunnels[i]
 		icon := icons[i%len(icons)]
-		label := fmt.Sprintf("%s  :%d → %s:%d", cfg.Name, cfg.LocalPort, cfg.RemoteHost, cfg.RemotePort)
+		portLabel := fmt.Sprintf(":%d", t.Port())
+		if t.Port() == 0 {
+			portLabel = ":auto"
+		}
+		label := fmt.Sprintf("%s  %s → %s:%d", cfg.Name, portLabel, cfg.RemoteHost, cfg.RemotePort)
 
 		var statusStr string
 		if t.IsActive() {
@@ -1208,16 +1313,11 @@ func (m Model) renderTunnelsMenu() string {
 		}
 
 		if i == m.cursor {
-			action := "deactivate"
-			if !t.IsActive() {
-				action = "activate"
-			}
 			s.WriteString(fmt.Sprintf("  %s %s %s  %s\n",
 				selectedStyle.Render(IconArrow),
 				selectedStyle.Render(icon),
 				selectedStyle.Render(label),
 				statusStr))
-			s.WriteString(fmt.Sprintf("      %s\n", subtitleStyle.Render(fmt.Sprintf("enter to %s", action))))
 		} else {
 			s.WriteString(fmt.Sprintf("    %s %s  %s\n",
 				mutedStyle.Render(icon),
@@ -1234,6 +1334,20 @@ func (m Model) renderTunnelsMenu() string {
 	} else {
 		s.WriteString(fmt.Sprintf("    %s\n", mutedStyle.Render("← Back")))
 	}
+
+	return s.String()
+}
+
+func (m Model) renderTunnelPortEdit() string {
+	var s strings.Builder
+	t := m.tunnels[m.cursor]
+
+	s.WriteString("\n")
+	s.WriteString(subtitleStyle.Render(fmt.Sprintf("  local port for %s", t.Name)))
+	s.WriteString("\n\n")
+	s.WriteString("  " + m.portInput.View())
+	s.WriteString("\n\n")
+	s.WriteString(subtitleStyle.Render("  valid range: 1-65535"))
 
 	return s.String()
 }

@@ -9,24 +9,31 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
+// connProvider is implemented by *ssh.Client, kept as an interface to avoid
+// importing that package and to always dial through a live connection.
+type connProvider interface {
+	GetConn() *gossh.Client
+}
+
 type Tunnel struct {
 	Name       string
-	LocalPort  int
+	LocalPort  int // 0 lets the OS pick a free port
 	RemoteHost string
 	RemotePort int
-	sshConn    *gossh.Client
+	client     connProvider
 	listener   net.Listener
 	mu         sync.Mutex
 	active     bool
+	boundPort  int
 }
 
-func New(name string, localPort int, remoteHost string, remotePort int, conn *gossh.Client) *Tunnel {
+func New(name string, localPort int, remoteHost string, remotePort int, client connProvider) *Tunnel {
 	return &Tunnel{
 		Name:       name,
 		LocalPort:  localPort,
 		RemoteHost: remoteHost,
 		RemotePort: remotePort,
-		sshConn:    conn,
+		client:     client,
 	}
 }
 
@@ -44,11 +51,27 @@ func (t *Tunnel) Start() error {
 	}
 
 	t.listener = listener
+	t.boundPort = listener.Addr().(*net.TCPAddr).Port
 	t.active = true
 
 	go t.accept()
 
 	return nil
+}
+
+func (t *Tunnel) Port() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.active {
+		return t.boundPort
+	}
+	return t.LocalPort
+}
+
+func (t *Tunnel) SetLocalPort(port int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.LocalPort = port
 }
 
 func (t *Tunnel) accept() {
@@ -64,7 +87,12 @@ func (t *Tunnel) accept() {
 func (t *Tunnel) forward(local net.Conn) {
 	defer local.Close()
 
-	remote, err := t.sshConn.Dial("tcp", fmt.Sprintf("%s:%d", t.RemoteHost, t.RemotePort))
+	conn := t.client.GetConn()
+	if conn == nil {
+		return
+	}
+
+	remote, err := conn.Dial("tcp", fmt.Sprintf("%s:%d", t.RemoteHost, t.RemotePort))
 	if err != nil {
 		return
 	}
