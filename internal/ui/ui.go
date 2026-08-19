@@ -113,6 +113,8 @@ type Model struct {
 	viewport      viewport.Model
 	viewportReady bool
 	viewportTitle string
+	// true while auto-scroll to the newest log line is active
+	logsFollow bool
 	// Splash screen
 	splashTick int
 	// Tunnels
@@ -220,8 +222,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.viewportReady {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = msg.Height - 6
+			if m.state == viewLogs || m.state == viewLogsStream {
+				m.viewport.Width, m.viewport.Height = m.logsViewportSize()
+				m.refreshLogsViewport()
+			} else {
+				m.viewport.Width = msg.Width
+				m.viewport.Height = msg.Height - 6
+			}
 		}
 		return m, nil
 
@@ -285,11 +292,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.logs = msg.logs
 		}
+		w, h := m.logsViewportSize()
+		m.viewport = viewport.New(w, h)
+		m.viewportReady = true
+		m.logsFollow = true
+		m.refreshLogsViewport()
 		return m, nil
 
 	case streamTickMsg:
 		if m.streaming && m.state == viewLogsStream {
 			m.logs = m.logBuffer.getAll()
+			m.refreshLogsViewport()
 			return m, streamTick()
 		}
 		return m, nil
@@ -340,10 +353,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// If in scrollable view, handle scroll
-	if m.state == viewScrollable {
+	// Scrollable views (nginx config or logs) route keys to the viewport
+	if m.state == viewScrollable || m.state == viewLogs || m.state == viewLogsStream {
 		switch msg.String() {
-		case "q", "esc", "enter":
+		case "q", "esc", "enter", "ctrl+c":
+			if m.streaming {
+				m.stopStreaming()
+				m.streaming = false
+			}
 			m.viewportReady = false
 			m.state = viewMainMenu
 			m.cursor = 0
@@ -351,6 +368,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		default:
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
+			m.logsFollow = m.viewport.AtBottom()
 			return m, cmd
 		}
 	}
@@ -376,15 +394,13 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "up", "k":
-		if m.state != viewLogsStream && m.cursor > 0 {
+		if m.cursor > 0 {
 			m.cursor--
 		}
 		return m, nil
 
 	case "down", "j":
-		if m.state != viewLogsStream {
-			m.cursor = m.incrementCursor()
-		}
+		m.cursor = m.incrementCursor()
 		return m, nil
 
 	case "enter", " ":
@@ -451,16 +467,10 @@ func (m Model) handleSelect() (tea.Model, tea.Cmd) {
 		return m.handleNginxSelect()
 	case viewTunnels:
 		return m.handleTunnelSelect()
-	case viewResult, viewLogs, viewStatus:
+	case viewResult, viewStatus:
 		if m.connectionError != "" {
 			return m, tea.Quit
 		}
-		m.state = viewMainMenu
-		m.cursor = 0
-		return m, nil
-	case viewLogsStream:
-		m.stopStreaming()
-		m.streaming = false
 		m.state = viewMainMenu
 		m.cursor = 0
 		return m, nil
@@ -547,7 +557,12 @@ func (m Model) handleLogTypeSelect() (tea.Model, tea.Cmd) {
 		m.logs = []string{}
 		m.state = viewLogsStream
 		m.streaming = true
+		m.logsFollow = true
 		m.streamPm2Name = project.PM2Name
+		w, h := m.logsViewportSize()
+		m.viewport = viewport.New(w, h)
+		m.viewportReady = true
+		m.refreshLogsViewport()
 		return m, tea.Batch(m.startLogStream(project.PM2Name), streamTick())
 	case 1: // Last 100 lines
 		m.state = viewDeploying
@@ -1018,39 +1033,55 @@ func (m Model) renderDeploying() string {
 	return s.String()
 }
 
+func (m Model) logsViewportSize() (width, height int) {
+	height = m.height - 9
+	if height < 5 {
+		height = 5
+	}
+	width = m.width - 4
+	if width < 40 {
+		width = 40
+	}
+	return width, height
+}
+
+func (m *Model) refreshLogsViewport() {
+	if !m.viewportReady {
+		return
+	}
+
+	contentWidth := m.viewport.Width - 2
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+
+	var content string
+	switch {
+	case len(m.logs) > 0:
+		content = logStyle.Width(contentWidth).Render(strings.Join(m.logs, "\n"))
+	case m.streaming:
+		content = mutedStyle.Render("  connecting to stream...")
+	default:
+		content = mutedStyle.Render("  no logs")
+	}
+
+	m.viewport.SetContent(content)
+	if m.logsFollow {
+		m.viewport.GotoBottom()
+	}
+}
+
 func (m Model) renderLogs() string {
 	var s strings.Builder
 	s.WriteString(titleStyle.Render("logs"))
 	s.WriteString("\n\n")
 
-	maxLines := m.height - 9
-	if maxLines < 5 {
-		maxLines = 5
-	}
-	if maxLines > 50 {
-		maxLines = 50
-	}
-
-	maxWidth := m.width - 4
-	if maxWidth < 40 {
-		maxWidth = 40
-	}
-
-	start := 0
-	if len(m.logs) > maxLines {
-		start = len(m.logs) - maxLines
-	}
-
-	for _, log := range m.logs[start:] {
-		if len(log) > maxWidth {
-			log = log[:maxWidth-3] + "..."
-		}
-		s.WriteString(logStyle.Render(log))
+	if m.viewportReady {
+		s.WriteString(m.viewport.View())
 		s.WriteString("\n")
 	}
 
-	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render("enter or esc to go back"))
+	s.WriteString(subtitleStyle.Render(fmt.Sprintf("↑/↓ scroll %s enter or esc to go back", IconDot)))
 
 	return s.String()
 }
@@ -1064,38 +1095,16 @@ func (m Model) renderLogsStream() string {
 	s.WriteString(errorStyle.Render(IconLive + " live"))
 	s.WriteString("\n\n")
 
-	maxLines := m.height - 9
-	if maxLines < 5 {
-		maxLines = 5
-	}
-	if maxLines > 50 {
-		maxLines = 50
+	if m.viewportReady {
+		s.WriteString(m.viewport.View())
+		s.WriteString("\n")
 	}
 
-	maxWidth := m.width - 4
-	if maxWidth < 40 {
-		maxWidth = 40
+	follow := "following"
+	if !m.logsFollow {
+		follow = "paused, ↓ to resume"
 	}
-
-	start := 0
-	if len(m.logs) > maxLines {
-		start = len(m.logs) - maxLines
-	}
-
-	if len(m.logs) == 0 {
-		s.WriteString(mutedStyle.Render("  connecting to stream...\n"))
-	} else {
-		for _, log := range m.logs[start:] {
-			if len(log) > maxWidth {
-				log = log[:maxWidth-3] + "..."
-			}
-			s.WriteString(logStyle.Render(log))
-			s.WriteString("\n")
-		}
-	}
-
-	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render(fmt.Sprintf("esc to stop %s %d lines", IconDot, len(m.logs))))
+	s.WriteString(subtitleStyle.Render(fmt.Sprintf("esc to stop %s %d lines %s %s", IconDot, len(m.logs), IconDot, follow)))
 
 	return s.String()
 }
