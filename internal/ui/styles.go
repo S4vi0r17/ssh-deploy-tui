@@ -139,7 +139,6 @@ var (
 			MarginBottom(1)
 )
 
-// Minimalist icons
 const (
 	IconArrow    = "›"
 	IconDot      = "•"

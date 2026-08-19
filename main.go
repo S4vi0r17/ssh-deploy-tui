@@ -14,11 +14,9 @@ import (
 )
 
 func getConfigPath() string {
-	// 1. If config.yaml exists in current directory, use it
 	if _, err := os.Stat("config.yaml"); err == nil {
 		return "config.yaml"
 	}
-	// 2. Otherwise, use ~/.config/sdt/config.yaml
 	if u, err := user.Current(); err == nil {
 		return filepath.Join(u.HomeDir, ".config", "sdt", "config.yaml")
 	}

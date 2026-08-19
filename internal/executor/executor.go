@@ -16,8 +16,7 @@ type StepResult struct {
 	Error   string
 }
 
-// StepProgress se emite por el canal de Deploy para que la UI muestre, en vivo,
-// en que paso va el deploy. Done/Failed indican el resultado del paso.
+// WHY: Done/Failed as two bools (not an enum) keep the zero value as "running".
 type StepProgress struct {
 	Name   string
 	Done   bool
@@ -47,8 +46,7 @@ func (e *Executor) Deploy(progress chan<- StepProgress) error {
 		{"Instalar dependencias", e.installDeps},
 	}
 
-	// Tests opcionales: solo si el proyecto define test_cmd. Si fallan, el deploy
-	// se aborta ANTES del build (no se toca nada en el servidor).
+	// WHY: tests run before build, so a failure aborts before touching the server.
 	if strings.TrimSpace(e.project.TestCmd) != "" {
 		steps = append(steps, struct {
 			name string
@@ -98,9 +96,8 @@ func (e *Executor) Deploy(progress chan<- StepProgress) error {
 	return nil
 }
 
-// gitPull hace un "pull especial": en vez de `git pull` (que puede fallar por
-// conflictos si el servidor tiene cambios locales), trae el remoto y fuerza el
-// estado del working tree a coincidir EXACTAMENTE con origin/<branch>.
+// WHY: fetch + reset --hard instead of `git pull`, which can fail on
+// conflicts if the server has local changes.
 func (e *Executor) gitPull() (string, error) {
 	cmd := fmt.Sprintf(
 		"cd %s && git fetch origin %s && git checkout %s && git reset --hard origin/%s",
@@ -114,8 +111,6 @@ func (e *Executor) gitPull() (string, error) {
 	return out, nil
 }
 
-// runTests ejecuta la suite de tests del proyecto. Solo se invoca cuando
-// test_cmd esta definido (ver Deploy). Un fallo aborta el deploy.
 func (e *Executor) runTests() (string, error) {
 	cmd := fmt.Sprintf("cd %s && %s", e.project.Path, e.project.TestCmd)
 	out, err := e.sshClient.Run(cmd)
@@ -134,20 +129,16 @@ func (e *Executor) installDeps() (string, error) {
 	return out, nil
 }
 
-// build construye el proyecto con respaldo y rollback automaticos.
-//
-// Si output_dir esta definido: respalda el build anterior, construye, y si el
-// build falla restaura el respaldo (el sitio sigue sirviendo la version previa).
-// Si el build tiene exito, borra el respaldo. Replica el deploy.yml del CI.
-//
-// Si output_dir no esta definido, simplemente construye (sin red de seguridad).
+// WHY: with output_dir set, backs up the previous build and rolls back to it
+// on failure, so the site keeps serving the last working version. Without
+// output_dir there's nothing to back up, so it just builds.
 func (e *Executor) build() (string, error) {
 	path := e.project.Path
 	dir := strings.TrimSpace(e.project.OutputDir)
 	withBackup := dir != ""
 
 	if withBackup {
-		// Respaldar build anterior. `|| true` para no fallar si no existe aun.
+		// WHY: `|| true` so this doesn't fail when there's no prior build yet.
 		backup := fmt.Sprintf(
 			"cd %s && rm -rf %s.backup && { cp -r %s %s.backup 2>/dev/null || true; }",
 			path, dir, dir, dir,
@@ -160,19 +151,18 @@ func (e *Executor) build() (string, error) {
 	out, err := e.sshClient.Run(fmt.Sprintf("cd %s && %s", path, e.project.BuildCmd))
 	if err != nil {
 		if withBackup {
-			// Build fallido: restaurar el build anterior.
 			restore := fmt.Sprintf(
 				"cd %s && rm -rf %s && { mv %s.backup %s 2>/dev/null || true; }",
 				path, dir, dir, dir,
 			)
-			e.sshClient.Run(restore) // best-effort: ya estamos en el camino de error
+			// WHY: ignore this error — we're already on the failure path.
+			e.sshClient.Run(restore)
 			return out, fmt.Errorf("build fallido, se restauro el build anterior: %v", err)
 		}
 		return out, err
 	}
 
 	if withBackup {
-		// Build OK: descartar el respaldo.
 		e.sshClient.Run(fmt.Sprintf("cd %s && rm -rf %s.backup", path, dir))
 	}
 
@@ -187,16 +177,9 @@ func (e *Executor) flushPM2() (string, error) {
 	return out, nil
 }
 
-// reloadPM2 recarga el proceso sin downtime usando `pm2 reload`.
-//
-// A diferencia de `pm2 restart` (que mata y vuelve a levantar el proceso,
-// dejando un hueco de indisponibilidad), `pm2 reload` hace un reinicio
-// graceful: en apps cluster levanta los nuevos workers antes de bajar los
-// viejos (cero downtime real); en apps fork hace el reinicio lo mas suave
-// posible. `--update-env` reaplica las variables de entorno actuales.
-//
-// Si el reload falla (p.ej. el proceso no existe aun en PM2), se cae a
-// `pm2 restart` para que el primer deploy o un proceso caido igual levante.
+// WHY: `pm2 reload` restarts gracefully (new workers before killing old ones
+// in cluster mode) instead of the downtime gap `pm2 restart` causes. Falls
+// back to `pm2 restart` when the process doesn't exist yet in PM2.
 func (e *Executor) reloadPM2() (string, error) {
 	cmd := fmt.Sprintf(
 		"pm2 reload %s --update-env || pm2 restart %s --update-env",
@@ -228,7 +211,6 @@ func (e *Executor) GetResults() []StepResult {
 	return e.results
 }
 
-// GetPM2Logs obtiene los logs de PM2 via SSH
 func GetPM2Logs(sshClient *ssh.Client, pm2Name string, lines int) ([]string, error) {
 	out, err := sshClient.Run(fmt.Sprintf("pm2 logs %s --lines %d --nostream", pm2Name, lines))
 	if err != nil {
@@ -244,7 +226,6 @@ func GetPM2Logs(sshClient *ssh.Client, pm2Name string, lines int) ([]string, err
 	return logs, nil
 }
 
-// GetPM2Status obtiene el estado de todos los procesos PM2 via SSH
 func GetPM2Status(sshClient *ssh.Client) (string, error) {
 	cmd := `pm2 jlist | python3 -c "
 import sys, json
@@ -277,7 +258,6 @@ for p in data:
 	return out, nil
 }
 
-// NginxReload recarga la configuracion de nginx via SSH
 func NginxReload(sshClient *ssh.Client) (string, error) {
 	out, err := sshClient.Run("sudo nginx -s reload")
 	if err != nil {
@@ -286,7 +266,6 @@ func NginxReload(sshClient *ssh.Client) (string, error) {
 	return "Nginx recargado correctamente", nil
 }
 
-// NginxTest verifica la configuracion de nginx via SSH
 func NginxTest(sshClient *ssh.Client) (string, error) {
 	out, err := sshClient.Run("sudo nginx -t")
 	if err != nil {
@@ -295,7 +274,6 @@ func NginxTest(sshClient *ssh.Client) (string, error) {
 	return out, nil
 }
 
-// GetNginxConfig obtiene la lista de configuraciones de nginx
 func GetNginxConfig(sshClient *ssh.Client) (string, error) {
 	cmd := `echo '══════════════════════════════════════════'
 echo '         NGINX - SITES HABILITADOS'
@@ -317,7 +295,6 @@ done`
 	return out, nil
 }
 
-// NginxCopyConfig obtiene la configuracion de nginx y la copia al clipboard local
 func NginxCopyConfig(sshClient *ssh.Client) (string, error) {
 	cmd := `for f in /etc/nginx/sites-enabled/*; do
     if [ -f "$f" ]; then
