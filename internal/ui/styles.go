@@ -15,11 +15,7 @@ const Logo = `
 ██████╔╝╚════██║░░╚██╔╝░░██╗╚█████╔╝██║░░██║
 ╚═════╝░░░░░░╚═╝░░░╚═╝░░░╚═╝░╚════╝░╚═╝░░╚═╝`
 
-var LogoClean = strings.ReplaceAll(Logo, "░", "\u00A0")
-
-const LogoSmall = `[ S4v!0r ]`
-const LogoMinimal = `S4v!0r`
-const LogoSimple = `S4v!0r`
+var LogoClean = strings.ReplaceAll(Logo, "░", " ")
 
 // Paleta Catppuccin Mocha
 var (
@@ -28,28 +24,16 @@ var (
 	pink      = lipgloss.Color("#f5c2e7")
 	mauve     = lipgloss.Color("#cba6f7")
 	red       = lipgloss.Color("#f38ba8")
-	maroon    = lipgloss.Color("#eba0ac")
-	peach     = lipgloss.Color("#fab387")
-	yellow    = lipgloss.Color("#f9e2af")
 	green     = lipgloss.Color("#a6e3a1")
-	teal      = lipgloss.Color("#94e2d5")
-	sky       = lipgloss.Color("#89dceb")
-	sapphire  = lipgloss.Color("#74c7ec")
-	blue      = lipgloss.Color("#89b4fa")
 	lavender  = lipgloss.Color("#b4befe")
 
 	text     = lipgloss.Color("#cdd6f4")
-	subtext1 = lipgloss.Color("#bac2de")
 	subtext0 = lipgloss.Color("#a6adc8")
-	overlay2 = lipgloss.Color("#9399b2")
 	overlay1 = lipgloss.Color("#7f849c")
 	overlay0 = lipgloss.Color("#6c7086")
 	surface2 = lipgloss.Color("#585b70")
 	surface1 = lipgloss.Color("#45475a")
 	surface0 = lipgloss.Color("#313244")
-	base     = lipgloss.Color("#1e1e2e")
-	mantle   = lipgloss.Color("#181825")
-	crust    = lipgloss.Color("#11111b")
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -85,16 +69,12 @@ var (
 			Foreground(lavender)
 
 	logStyle = lipgloss.NewStyle().
-			Foreground(subtext0).
-			PaddingLeft(2)
+			Foreground(subtext0)
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(overlay0).
-			MarginTop(1)
-
-	logoStyle = lipgloss.NewStyle().
-			Foreground(pink).
-			Bold(true)
+			MarginTop(1).
+			PaddingLeft(2)
 
 	logoGradientStyle1 = lipgloss.NewStyle().
 				Foreground(pink).
@@ -127,16 +107,51 @@ var (
 	statusOfflineStyle = lipgloss.NewStyle().
 				Foreground(red)
 
-	contentBoxStyle = lipgloss.NewStyle().
+	tabActiveStyle = lipgloss.NewStyle().
+			Foreground(mauve).
+			Bold(true)
+
+	tabActiveEdgeStyle = lipgloss.NewStyle().
+				Foreground(mauve)
+
+	tabInactiveStyle = lipgloss.NewStyle().
+				Foreground(overlay0)
+
+	tabRuleStyle = lipgloss.NewStyle().
+			Foreground(surface1)
+
+	panelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(surface1).
-			Padding(1, 2)
+			Padding(0, 1)
 
-	headerBarStyle = lipgloss.NewStyle().
-			Foreground(text).
-			Background(surface0).
-			Padding(0, 2).
-			MarginBottom(1)
+	// WHY: la fila activa se pinta como barra completa; cada fragmento lleva su
+	// propio Background porque lipgloss no propaga el fondo a texto ya estilado.
+	rowSelectedStyle = lipgloss.NewStyle().
+				Foreground(mauve).
+				Background(surface0).
+				Bold(true)
+
+	rowSelectedMetaStyle = lipgloss.NewStyle().
+				Foreground(subtext0).
+				Background(surface0)
+
+	rowStyle = lipgloss.NewStyle().
+			Foreground(text)
+
+	rowMetaStyle = lipgloss.NewStyle().
+			Foreground(overlay0)
+
+	descStyle = lipgloss.NewStyle().
+			Foreground(overlay1).
+			Italic(true).
+			PaddingLeft(2)
+
+	badgeOnStyle = lipgloss.NewStyle().
+			Foreground(green)
+
+	badgeOffStyle = lipgloss.NewStyle().
+			Foreground(overlay0)
 )
 
 const (
@@ -147,14 +162,8 @@ const (
 	IconCircle   = "○"
 	IconFilled   = "●"
 	IconFolder   = "□"
-	IconFile     = "◇"
 	IconServer   = "◆"
 	IconLive     = "●"
-	IconPending  = "○"
-	IconRunning  = "◐"
-	IconLock     = "◈"
-	IconUnlock   = "◇"
 	IconTerminal = "❯"
-	IconBranch   = "⎇"
 	IconSSH      = "⌁"
 )

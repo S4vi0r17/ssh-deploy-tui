@@ -24,7 +24,7 @@
 - [ ] Soporte multi-servidor con selector
 - [ ] Notificaciones Discord/Slack via webhook
 - [ ] Temas de colores (Catppuccin Latte, Dracula, etc.)
-- [ ] Atajos rápidos con teclas numéricas (1-6)
+- [x] Atajos rápidos con teclas numéricas (1-5, tabs)
 - [ ] Búsqueda de logs estilo vim (/)
 
 ## Seguridad

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,48 +25,44 @@ type viewState int
 const (
 	viewSplash viewState = iota
 	viewConnecting
-	viewMainMenu
-	viewSelectProject
-	viewSelectLogType
-	viewDeploying
+	viewTab
+	viewBusy
 	viewLogs
 	viewLogsStream
-	viewStatus
-	viewNginx
 	viewResult
 	viewScrollable
-	viewTunnels
 )
 
-const AppVersion = "1.5.1"
+type tabID int
+
+const (
+	tabDeploy tabID = iota
+	tabLogs
+	tabPM2
+	tabTunnels
+	tabNginx
+)
+
+var tabs = []struct{ name string }{
+	{name: "Deploy"},
+	{name: "Logs"},
+	{name: "PM2"},
+	{name: "Tunnels"},
+	{name: "Nginx"},
+}
+
+const AppVersion = "2.0.0"
 
 type menuItem struct {
 	title       string
 	description string
 }
 
-var mainMenuItems = []menuItem{
-	{title: "Deploy project", description: "Update, install, test, build (con backup) y restart"},
-	{title: "View logs", description: "Show PM2 logs"},
-	{title: "Restart service", description: "Restart without rebuild"},
-	{title: "PM2 Status", description: "View process status"},
-	{title: "Tunnels", description: "Manage SSH port forwarding"},
-	{title: "Nginx", description: "Reload or test config"},
-	{title: "Exit", description: "Close application"},
-}
-
-var logTypeMenuItems = []menuItem{
-	{title: "Real-time", description: "Live streaming (auto-refresh)"},
-	{title: "Last 100 lines", description: "View historical logs"},
-	{title: "← Back", description: "Main menu"},
-}
-
-var nginxMenuItems = []menuItem{
-	{title: "View config", description: "Show sites-available"},
-	{title: "Copy config", description: "Copy to clipboard"},
-	{title: "Test config", description: "Verify configuration"},
-	{title: "Reload", description: "Reload nginx"},
-	{title: "← Back", description: "Main menu"},
+var nginxActions = []menuItem{
+	{title: "View config", description: "Show sites-available in a scrollable panel"},
+	{title: "Copy config", description: "Copy the config to the clipboard"},
+	{title: "Test config", description: "nginx -t: verify the syntax"},
+	{title: "Reload", description: "Reload nginx without dropping connections"},
 }
 
 // WHY: written by the stream goroutine, read by the UI tick — needs a mutex.
@@ -100,20 +97,20 @@ type Model struct {
 	connectionError   string
 	viewportTitle     string
 	selectedProject   string
-	selectedAction    string
-	streamPm2Name     string
 	result            string
 	logs              []string
 	tunnels           []*tunnel.Tunnel
 	projectKeys       []string
+	pm2Keys           []string
 	deploySteps       []deployStep
+	cursors           []int
 	portInput         textinput.Model
 	viewport          viewport.Model
 	spinner           spinner.Model
 	width             int
-	state             viewState
 	height            int
-	cursor            int
+	state             viewState
+	activeTab         tabID
 	splashTick        int
 	resultSuccess     bool
 	editingTunnelPort bool
@@ -147,10 +144,6 @@ type logsMsg struct {
 	logs []string
 }
 type streamTickMsg struct{}
-type statusMsg struct {
-	err    error
-	status string
-}
 type nginxMsg struct {
 	output  string
 	success bool
@@ -170,15 +163,27 @@ func NewModel(cfg *config.Config) Model {
 	s.Spinner = spinner.Dot
 	s.Style = spinnerStyle
 
+	// WHY: GetProjectList recorre un map, así que sin ordenar las filas cambian
+	// de posición entre ejecuciones y el cursor deja de ser predecible.
+	keys := cfg.GetProjectList()
+	sort.Strings(keys)
+
+	var pm2Keys []string
+	for _, k := range keys {
+		if p, _ := cfg.GetProject(k); p.Type == "pm2" {
+			pm2Keys = append(pm2Keys, k)
+		}
+	}
+
 	return Model{
 		config:      cfg,
 		sshClient:   ssh.NewClient(&cfg.SSH),
 		state:       viewSplash,
-		cursor:      0,
 		spinner:     s,
-		projectKeys: cfg.GetProjectList(),
+		projectKeys: keys,
+		pm2Keys:     pm2Keys,
+		cursors:     make([]int, len(tabs)),
 		logBuffer:   &logBuffer{lines: []string{}},
-		splashTick:  0,
 	}
 }
 
@@ -218,12 +223,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.viewportReady {
+			m.viewport.Width, m.viewport.Height = m.viewportSize()
 			if m.state == viewLogs || m.state == viewLogsStream {
-				m.viewport.Width, m.viewport.Height = m.logsViewportSize()
 				m.refreshLogsViewport()
-			} else {
-				m.viewport.Width = msg.Width
-				m.viewport.Height = msg.Height - 6
 			}
 		}
 		return m, nil
@@ -246,16 +248,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = viewResult
 			m.result = fmt.Sprintf("SSH connection error:\n\n%s\n\nCheck your config.yaml", msg.err.Error())
 			m.resultSuccess = false
-		} else {
-			m.tunnels = make([]*tunnel.Tunnel, len(m.config.Tunnels))
-			for i, tc := range m.config.Tunnels {
-				m.tunnels[i] = tunnel.New(tc.Name, tc.LocalPort, tc.RemoteHost, tc.RemotePort, m.sshClient)
-				if tc.AutoStart {
-					m.tunnels[i].Start()
-				}
-			}
-			m.state = viewMainMenu
+			return m, nil
 		}
+		m.tunnels = make([]*tunnel.Tunnel, len(m.config.Tunnels))
+		for i, tc := range m.config.Tunnels {
+			m.tunnels[i] = tunnel.New(tc.Name, tc.LocalPort, tc.RemoteHost, tc.RemotePort, m.sshClient)
+			if tc.AutoStart {
+				m.tunnels[i].Start()
+			}
+		}
+		m.state = viewTab
 		return m, nil
 
 	case deployStepMsg:
@@ -287,7 +289,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.logs = msg.logs
 		}
-		w, h := m.logsViewportSize()
+		w, h := m.viewportSize()
 		m.viewport = viewport.New(w, h)
 		m.viewportReady = true
 		m.logsFollow = true
@@ -299,17 +301,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logs = m.logBuffer.getAll()
 			m.refreshLogsViewport()
 			return m, streamTick()
-		}
-		return m, nil
-
-	case statusMsg:
-		m.state = viewResult
-		if msg.err != nil {
-			m.result = fmt.Sprintf("Error: %v", msg.err)
-			m.resultSuccess = false
-		} else {
-			m.result = msg.status
-			m.resultSuccess = true
 		}
 		return m, nil
 
@@ -326,8 +317,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resultSuccess = false
 			return m, nil
 		}
-		m.viewport = viewport.New(m.width, m.height-6)
-		m.viewport.SetContent(msg.content)
+		w, h := m.viewportSize()
+		m.viewport = viewport.New(w, h)
+		m.viewport.SetContent(logStyle.Width(w).Render(msg.content))
 		m.viewportReady = true
 		m.viewportTitle = msg.title
 		m.state = viewScrollable
@@ -340,7 +332,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resultSuccess = false
 			return m, nil
 		}
-		m.state = viewTunnels
+		m.state = viewTab
 		return m, nil
 
 	default:
@@ -355,8 +347,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.state == viewTunnels && m.editingTunnelPort {
-		switch msg.String() {
+	key := msg.String()
+
+	if key == "ctrl+c" {
+		return m.quit()
+	}
+
+	if m.editingTunnelPort {
+		switch key {
 		case "esc":
 			m.editingTunnelPort = false
 			return m, nil
@@ -369,83 +367,116 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.state == viewScrollable || m.state == viewLogs || m.state == viewLogsStream {
-		switch msg.String() {
-		case "q", "esc", "enter", "ctrl+c":
+	switch m.state {
+	case viewConnecting, viewBusy:
+		return m, nil
+
+	case viewResult:
+		switch key {
+		case "enter", "esc", "q":
+			if m.connectionError != "" {
+				return m.quit()
+			}
+			m.state = viewTab
+		}
+		return m, nil
+
+	case viewLogs, viewLogsStream, viewScrollable:
+		if key == "esc" || key == "q" {
 			if m.streaming {
 				m.stopStreaming()
 				m.streaming = false
 			}
 			m.viewportReady = false
-			m.state = viewMainMenu
-			m.cursor = 0
+			m.state = viewTab
 			return m, nil
-		default:
-			var cmd tea.Cmd
-			m.viewport, cmd = m.viewport.Update(msg)
-			m.logsFollow = m.viewport.AtBottom()
-			return m, cmd
 		}
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		m.logsFollow = m.viewport.AtBottom()
+		return m, cmd
 	}
 
-	switch msg.String() {
-	case "ctrl+c", "q":
-		if m.streaming {
-			m.stopStreaming()
-			m.streaming = false
-			m.state = viewMainMenu
-			m.cursor = 0
-			return m, nil
-		}
-		if m.state == viewMainMenu {
-			m.sshClient.Close()
-			return m, tea.Quit
-		}
-		if m.connectionError != "" {
-			return m, tea.Quit
-		}
-		m.state = viewMainMenu
-		m.cursor = 0
-		return m, nil
+	return m.handleTabKey(key)
+}
+
+func (m Model) handleTabKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "q":
+		return m.quit()
 
 	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+		if c := m.cursor(); c > 0 {
+			m.setCursor(c - 1)
 		}
-		return m, nil
 
 	case "down", "j":
-		m.cursor = m.incrementCursor()
-		return m, nil
+		if c := m.cursor(); c < m.rowCount()-1 {
+			m.setCursor(c + 1)
+		}
+
+	case "tab", "right":
+		m.activeTab = (m.activeTab + 1) % tabID(len(tabs))
+
+	case "shift+tab", "left":
+		m.activeTab = (m.activeTab + tabID(len(tabs)) - 1) % tabID(len(tabs))
+
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		if i := int(key[0] - '1'); i < len(tabs) {
+			m.activeTab = tabID(i)
+		}
 
 	case "enter", " ":
-		return m.handleSelect()
+		return m.handleEnter()
+
+	case "l":
+		if m.activeTab == tabLogs && m.rowCount() > 0 {
+			return m.showLastLogs(m.pm2Keys[m.cursor()])
+		}
+
+	case "s":
+		if m.activeTab == tabPM2 {
+			m.state = viewBusy
+			return m, m.getStatus()
+		}
 
 	case "e":
-		if m.state == viewTunnels && m.cursor < len(m.tunnels) {
+		if m.activeTab == tabTunnels && m.rowCount() > 0 {
 			return m.startTunnelPortEdit()
 		}
-		return m, nil
-
-	case "esc":
-		if m.streaming {
-			m.stopStreaming()
-			m.streaming = false
-			m.state = viewMainMenu
-			m.cursor = 0
-			return m, nil
-		}
-		if m.connectionError != "" {
-			return m, tea.Quit
-		}
-		if m.state != viewMainMenu {
-			m.state = viewMainMenu
-			m.cursor = 0
-		}
-		return m, nil
 	}
 
 	return m, nil
+}
+
+func (m Model) handleEnter() (tea.Model, tea.Cmd) {
+	if m.rowCount() == 0 {
+		return m, nil
+	}
+	c := m.cursor()
+
+	switch m.activeTab {
+	case tabDeploy:
+		return m.startDeploy(m.projectKeys[c])
+	case tabLogs:
+		return m.startLiveLogs(m.pm2Keys[c])
+	case tabPM2:
+		return m.restartProject(m.pm2Keys[c])
+	case tabTunnels:
+		return m.toggleTunnel(c)
+	case tabNginx:
+		return m.runNginxAction(c)
+	}
+	return m, nil
+}
+
+func (m Model) quit() (tea.Model, tea.Cmd) {
+	for _, t := range m.tunnels {
+		t.Stop()
+	}
+	m.stopStreaming()
+	m.sshClient.Close()
+	return m, tea.Quit
 }
 
 func (m *Model) stopStreaming() {
@@ -455,177 +486,83 @@ func (m *Model) stopStreaming() {
 	}
 }
 
-func (m Model) incrementCursor() int {
-	max := 0
-	switch m.state {
-	case viewMainMenu:
-		max = len(mainMenuItems) - 1
-	case viewSelectProject:
-		max = len(m.projectKeys) - 1
-	case viewSelectLogType:
-		max = len(logTypeMenuItems) - 1
-	case viewNginx:
-		max = len(nginxMenuItems) - 1
-	case viewTunnels:
-		max = len(m.tunnels) // Back item is at index len(m.tunnels)
+func (m Model) rowCount() int {
+	switch m.activeTab {
+	case tabDeploy:
+		return len(m.projectKeys)
+	case tabLogs, tabPM2:
+		return len(m.pm2Keys)
+	case tabTunnels:
+		return len(m.tunnels)
+	case tabNginx:
+		return len(nginxActions)
 	}
-
-	if m.cursor < max {
-		return m.cursor + 1
-	}
-	return m.cursor
+	return 0
 }
 
-func (m Model) handleSelect() (tea.Model, tea.Cmd) {
-	switch m.state {
-	case viewMainMenu:
-		return m.handleMainMenuSelect()
-	case viewSelectProject:
-		return m.handleProjectSelect()
-	case viewSelectLogType:
-		return m.handleLogTypeSelect()
-	case viewNginx:
-		return m.handleNginxSelect()
-	case viewTunnels:
-		return m.handleTunnelSelect()
-	case viewResult, viewStatus:
-		if m.connectionError != "" {
-			return m, tea.Quit
-		}
-		m.state = viewMainMenu
-		m.cursor = 0
-		return m, nil
+// WHY: el cursor vive por pestaña y las filas de Tunnels aparecen recién tras
+// conectar, así que se acota en la lectura en vez de al cambiar de pestaña.
+func (m Model) cursor() int {
+	c := m.cursors[m.activeTab]
+	if n := m.rowCount(); c >= n {
+		c = n - 1
 	}
-	return m, nil
+	if c < 0 {
+		c = 0
+	}
+	return c
 }
 
-func (m Model) handleMainMenuSelect() (tea.Model, tea.Cmd) {
-	switch m.cursor {
-	case 0: // Deploy
-		m.selectedAction = "deploy"
-		m.state = viewSelectProject
-		m.cursor = 0
-	case 1: // Logs
-		m.selectedAction = "logs"
-		m.state = viewSelectProject
-		m.cursor = 0
-	case 2: // Restart
-		m.selectedAction = "restart"
-		m.state = viewSelectProject
-		m.cursor = 0
-	case 3: // Status
-		m.state = viewDeploying
-		return m, m.getStatus()
-	case 4: // Tunnels
-		m.state = viewTunnels
-		m.cursor = 0
-		return m, m.ensureSSHConnected()
-	case 5: // Nginx
-		m.state = viewNginx
-		m.cursor = 0
-	case 6: // Exit
-		for _, t := range m.tunnels {
-			t.Stop()
-		}
-		m.sshClient.Close()
-		return m, tea.Quit
-	}
-	return m, nil
+func (m *Model) setCursor(c int) {
+	m.cursors[m.activeTab] = c
 }
 
-func (m Model) handleProjectSelect() (tea.Model, tea.Cmd) {
-	m.selectedProject = m.projectKeys[m.cursor]
-	project, _ := m.config.GetProject(m.selectedProject)
-
-	switch m.selectedAction {
-	case "deploy":
-		m.state = viewDeploying
-		m.logs = []string{}
-		m.deploySteps = nil
-		m.deployChan = make(chan tea.Msg, 64)
-		return m, tea.Batch(
-			deployRunner(project, m.sshClient, m.deployChan),
-			waitForDeploy(m.deployChan),
-		)
-	case "logs":
-		if project.Type != "pm2" {
-			m.state = viewResult
-			m.result = "This is a static project, it has no PM2 logs"
-			m.resultSuccess = false
-			return m, nil
-		}
-		m.state = viewSelectLogType
-		m.cursor = 0
-		return m, nil
-	case "restart":
-		if project.Type != "pm2" {
-			m.state = viewResult
-			m.result = "This is a static project, it does not use PM2"
-			m.resultSuccess = false
-			return m, nil
-		}
-		m.state = viewDeploying
-		return m, m.doRestart(project)
-	}
-	return m, nil
+func (m Model) startDeploy(key string) (tea.Model, tea.Cmd) {
+	project, _ := m.config.GetProject(key)
+	m.selectedProject = key
+	m.state = viewBusy
+	m.logs = nil
+	m.deploySteps = nil
+	m.deployChan = make(chan tea.Msg, 64)
+	return m, tea.Batch(
+		deployRunner(project, m.sshClient, m.deployChan),
+		waitForDeploy(m.deployChan),
+	)
 }
 
-func (m Model) handleLogTypeSelect() (tea.Model, tea.Cmd) {
-	project, _ := m.config.GetProject(m.selectedProject)
+func (m Model) startLiveLogs(key string) (tea.Model, tea.Cmd) {
+	project, _ := m.config.GetProject(key)
+	m.selectedProject = key
+	m.logBuffer = &logBuffer{lines: []string{}}
+	m.logs = nil
+	m.state = viewLogsStream
+	m.streaming = true
+	m.logsFollow = true
 
-	switch m.cursor {
-	case 0: // Real-time
-		m.logBuffer = &logBuffer{lines: []string{}}
-		m.logs = []string{}
-		m.state = viewLogsStream
-		m.streaming = true
-		m.logsFollow = true
-		m.streamPm2Name = project.PM2Name
-		w, h := m.logsViewportSize()
-		m.viewport = viewport.New(w, h)
-		m.viewportReady = true
-		m.refreshLogsViewport()
-		return m, tea.Batch(m.startLogStream(project.PM2Name), streamTick())
-	case 1: // Last 100 lines
-		m.state = viewDeploying
-		return m, m.getLogs(project.PM2Name)
-	case 2: // Back
-		m.state = viewMainMenu
-		m.cursor = 0
-	}
-	return m, nil
+	w, h := m.viewportSize()
+	m.viewport = viewport.New(w, h)
+	m.viewportReady = true
+	m.refreshLogsViewport()
+
+	return m, tea.Batch(m.startLogStream(project.PM2Name), streamTick())
 }
 
-func (m Model) handleNginxSelect() (tea.Model, tea.Cmd) {
-	switch m.cursor {
-	case 0: // View config
-		m.state = viewDeploying
-		return m, m.getNginxConfig()
-	case 1: // Copy config to clipboard
-		m.state = viewDeploying
-		return m, m.nginxCopyToClipboard()
-	case 2: // Test
-		m.state = viewDeploying
-		return m, m.nginxTest()
-	case 3: // Reload
-		m.state = viewDeploying
-		return m, m.nginxReload()
-	case 4: // Back
-		m.state = viewMainMenu
-		m.cursor = 0
-	}
-	return m, nil
+func (m Model) showLastLogs(key string) (tea.Model, tea.Cmd) {
+	project, _ := m.config.GetProject(key)
+	m.selectedProject = key
+	m.state = viewBusy
+	return m, m.getLogs(project.PM2Name)
 }
 
-func (m Model) handleTunnelSelect() (tea.Model, tea.Cmd) {
-	// WHY: "Back" is an implicit row right after the last tunnel, not in m.tunnels.
-	if m.cursor == len(m.tunnels) {
-		m.state = viewMainMenu
-		m.cursor = 0
-		return m, nil
-	}
+func (m Model) restartProject(key string) (tea.Model, tea.Cmd) {
+	project, _ := m.config.GetProject(key)
+	m.selectedProject = key
+	m.state = viewBusy
+	return m, m.doRestart(project)
+}
 
-	t := m.tunnels[m.cursor]
+func (m Model) toggleTunnel(idx int) (tea.Model, tea.Cmd) {
+	t := m.tunnels[idx]
 	sshClient := m.sshClient
 	return m, func() tea.Msg {
 		if t.IsActive() {
@@ -635,13 +572,27 @@ func (m Model) handleTunnelSelect() (tea.Model, tea.Cmd) {
 		if err := sshClient.EnsureConnected(); err != nil {
 			return tunnelResultMsg{err: fmt.Errorf("conexion SSH caida, no se pudo reconectar: %v", err)}
 		}
-		err := t.Start()
-		return tunnelResultMsg{err: err}
+		return tunnelResultMsg{err: t.Start()}
 	}
 }
 
+func (m Model) runNginxAction(idx int) (tea.Model, tea.Cmd) {
+	m.state = viewBusy
+	switch idx {
+	case 0:
+		return m, m.getNginxConfig()
+	case 1:
+		return m, m.nginxCopyToClipboard()
+	case 2:
+		return m, m.nginxTest()
+	case 3:
+		return m, m.nginxReload()
+	}
+	return m, nil
+}
+
 func (m Model) startTunnelPortEdit() (tea.Model, tea.Cmd) {
-	t := m.tunnels[m.cursor]
+	t := m.tunnels[m.cursor()]
 
 	ti := textinput.New()
 	ti.Placeholder = strconv.Itoa(t.Port())
@@ -662,7 +613,7 @@ func (m Model) applyTunnelPortEdit() (tea.Model, tea.Cmd) {
 	}
 	m.editingTunnelPort = false
 
-	t := m.tunnels[m.cursor]
+	t := m.tunnels[m.cursor()]
 	wasActive := t.IsActive()
 	t.SetLocalPort(port)
 	sshClient := m.sshClient
@@ -676,14 +627,6 @@ func (m Model) applyTunnelPortEdit() (tea.Model, tea.Cmd) {
 			return tunnelResultMsg{err: fmt.Errorf("conexion SSH caida, no se pudo reconectar: %v", err)}
 		}
 		return tunnelResultMsg{err: t.Start()}
-	}
-}
-
-func (m Model) ensureSSHConnected() tea.Cmd {
-	sshClient := m.sshClient
-	return func() tea.Msg {
-		sshClient.EnsureConnected()
-		return nil
 	}
 }
 
@@ -798,7 +741,7 @@ func (m *Model) startLogStream(pm2Name string) tea.Cmd {
 func (m Model) getStatus() tea.Cmd {
 	return func() tea.Msg {
 		status, err := executor.GetPM2Status(m.sshClient)
-		return statusMsg{status: status, err: err}
+		return scrollableContentMsg{title: "PM2 status", content: status, err: err}
 	}
 }
 
@@ -820,7 +763,7 @@ func (m Model) getNginxConfig() tea.Cmd {
 	return func() tea.Msg {
 		output, err := executor.GetNginxConfig(m.sshClient)
 		return scrollableContentMsg{
-			title:   "Nginx Configuration",
+			title:   "Nginx configuration",
 			content: output,
 			err:     err,
 		}
@@ -839,295 +782,144 @@ func (m Model) View() string {
 		return m.renderSplash()
 	}
 
-	var s strings.Builder
+	width := m.frameWidth()
+	body := lipgloss.NewStyle().
+		Width(width).
+		Height(m.bodyHeight()).
+		MaxHeight(m.bodyHeight()).
+		Render(m.renderBody(width))
 
-	s.WriteString(m.renderHeader())
-	s.WriteString("\n\n")
+	frame := lipgloss.JoinVertical(lipgloss.Left,
+		m.renderHeader(width),
+		m.renderTabBar(width),
+		"",
+		body,
+		helpStyle.Width(width).Render(m.helpText()),
+	)
 
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, frame)
+}
+
+func (m Model) renderBody(width int) string {
 	switch m.state {
 	case viewConnecting:
-		s.WriteString(m.renderConnecting())
-	case viewMainMenu:
-		s.WriteString(m.renderMainMenu())
-	case viewSelectProject:
-		s.WriteString(m.renderProjectSelect())
-	case viewSelectLogType:
-		s.WriteString(m.renderLogTypeMenu())
-	case viewDeploying:
-		s.WriteString(m.renderDeploying())
+		return m.renderConnecting()
+
+	case viewBusy:
+		return m.renderBusy()
+
+	case viewResult:
+		return m.renderResult(width)
+
 	case viewLogs:
-		s.WriteString(m.renderLogs())
+		project, _ := m.config.GetProject(m.selectedProject)
+		title := titleStyle.Render(project.Name) + mutedStyle.Render(" · last 100 lines")
+		return m.renderViewportPanel(width, title, m.scrollStatus())
+
 	case viewLogsStream:
-		s.WriteString(m.renderLogsStream())
-	case viewNginx:
-		s.WriteString(m.renderNginxMenu())
-	case viewTunnels:
-		if m.editingTunnelPort {
-			s.WriteString(m.renderTunnelPortEdit())
-		} else {
-			s.WriteString(m.renderTunnelsMenu())
+		project, _ := m.config.GetProject(m.selectedProject)
+		title := titleStyle.Render(project.Name) + " " + errorStyle.Render(IconLive+" live")
+		follow := "following"
+		if !m.logsFollow {
+			follow = "paused · ↓ to resume"
 		}
-	case viewResult:
-		s.WriteString(m.renderResult())
+		status := subtitleStyle.Render(fmt.Sprintf("%d lines %s %s", len(m.logs), IconDot, follow))
+		return m.renderViewportPanel(width, title, status)
+
 	case viewScrollable:
-		s.WriteString(m.renderScrollable())
-	}
+		return m.renderViewportPanel(width, titleStyle.Render(m.viewportTitle), m.scrollStatus())
 
-	s.WriteString("\n")
-	s.WriteString(helpStyle.Render(m.helpText()))
-
-	return s.String()
-}
-
-func (m Model) helpText() string {
-	d := " " + IconDot + " "
-	switch m.state {
-	case viewScrollable, viewLogs:
-		return "↑↓ scroll" + d + "esc back"
-	case viewLogsStream:
-		return "↑↓ scroll" + d + "esc stop"
-	case viewTunnels:
+	case viewTab:
 		if m.editingTunnelPort {
-			return "enter confirm" + d + "esc cancel"
+			return m.renderTunnelPortEdit(width)
 		}
-		action := "activate"
-		if m.cursor < len(m.tunnels) && m.tunnels[m.cursor].IsActive() {
-			action = "deactivate"
-		}
-		return "↑↓ navigate" + d + "enter " + action + d + "e set port" + d + "esc back"
-	case viewDeploying, viewConnecting:
-		return "please wait..."
-	case viewResult:
-		return "enter/esc back"
-	default:
-		return "↑↓ navigate" + d + "enter select" + d + "esc back" + d + "ctrl+c quit"
+		return m.renderTabContent(width)
 	}
+
+	return ""
 }
 
-func (m Model) renderSplash() string {
-	var s strings.Builder
-
-	selectedLogo := LogoClean
-
-	logoLineCount := len(strings.Split(selectedLogo, "\n"))
-	totalHeight := logoLineCount + 8
-	topPadding := (m.height - totalHeight) / 2
-	if topPadding < 0 {
-		topPadding = 1
+func (m Model) renderTabContent(width int) string {
+	switch m.activeTab {
+	case tabDeploy:
+		return renderRows(width, m.projectRows(m.projectKeys), m.cursor(), "no projects in config.yaml")
+	case tabLogs, tabPM2:
+		return renderRows(width, m.projectRows(m.pm2Keys), m.cursor(), "no pm2 projects in config.yaml")
+	case tabTunnels:
+		return renderRows(width, m.tunnelRows(), m.cursor(), "no tunnels in config.yaml")
+	case tabNginx:
+		return renderRows(width, nginxRows(), m.cursor(), "")
 	}
-
-	for i := 0; i < topPadding; i++ {
-		s.WriteString("\n")
-	}
-
-	logoLines := strings.Split(selectedLogo, "\n")
-	totalLogoLines := len(logoLines)
-	for i, line := range logoLines {
-		if line == "" {
-			s.WriteString("\n")
-			continue
-		}
-		var style lipgloss.Style
-		linePos := float64(i) / float64(totalLogoLines)
-		switch {
-		case linePos < 0.33:
-			style = logoGradientStyle1
-		case linePos < 0.66:
-			style = logoGradientStyle2
-		default:
-			style = logoGradientStyle3
-		}
-		styledLine := style.Render(line)
-		centered := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, styledLine)
-		s.WriteString(centered)
-		s.WriteString("\n")
-	}
-
-	decorWidth := 35
-	if m.width < 50 {
-		decorWidth = 20
-	}
-	decorLine := strings.Repeat("─", decorWidth)
-	s.WriteString("\n")
-	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, accentLineStyle.Render(decorLine)))
-	s.WriteString("\n\n")
-
-	subtitle := "Deploy System"
-	if m.width >= 50 {
-		subtitle = "Cloud Remote Server • Deploy System"
-	}
-	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, splashSubtitleStyle.Render(subtitle)))
-	s.WriteString("\n\n")
-
-	version := fmt.Sprintf(" v%s ", AppVersion)
-	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, versionBadgeStyle.Render(version)))
-	s.WriteString("\n\n")
-
-	blinkChars := []string{"▸", "▹"}
-	blinkChar := blinkChars[(m.splashTick/3)%len(blinkChars)]
-	pressKeyText := fmt.Sprintf("%s press any key to continue %s", blinkChar, blinkChar)
-	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, mutedStyle.Render(pressKeyText)))
-
-	return s.String()
+	return ""
 }
 
-func (m Model) renderHeader() string {
-	appName := m.config.AppName
-	if appName == "" {
-		appName = "SSH Deploy"
-	}
-	titleText := fmt.Sprintf("%s %s", IconTerminal, appName)
-	title := titleStyle.Render(titleText)
-
-	var status string
-	if m.sshClient.IsConnected() {
-		status = statusOnlineStyle.Render(fmt.Sprintf("%s %s", IconFilled, m.sshClient.GetHost()))
-	} else if m.state == viewConnecting {
-		status = mutedStyle.Render(fmt.Sprintf("%s connecting...", IconCircle))
-	} else {
-		status = statusOfflineStyle.Render(fmt.Sprintf("%s offline", IconCircle))
-	}
-
-	boxWidth := m.width - 2 // account for border chars
-	if boxWidth < 30 {
-		boxWidth = 30
-	}
-
-	titleLen := lipgloss.Width(title)
-	statusLen := lipgloss.Width(status)
-	gap := boxWidth - titleLen - statusLen - 4 // 4 = padding (2 each side)
-	if gap < 2 {
-		gap = 2
-	}
-
-	inner := title + strings.Repeat(" ", gap) + status
-
-	box := headerBoxStyle.
-		Width(boxWidth).
-		Render(inner)
-
-	return box
-}
-
-func (m Model) renderConnecting() string {
-	var s strings.Builder
-	s.WriteString(fmt.Sprintf("\n  %s Establishing SSH connection...\n", m.spinner.View()))
-	s.WriteString(fmt.Sprintf("     %s %s\n", IconSSH, mutedStyle.Render(m.config.SSH.Host)))
-	return s.String()
-}
-
-var menuIcons = []string{"◈", "◉", "◎", "◐", "◆", "◇"}
-
-func (m Model) renderMainMenu() string {
-	var s strings.Builder
-	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render("  select operation"))
-	s.WriteString("\n\n")
-
-	for i, item := range mainMenuItems {
-		icon := menuIcons[i%len(menuIcons)]
-		if i == m.cursor {
-			s.WriteString(fmt.Sprintf("  %s %s %s\n",
-				selectedStyle.Render(IconArrow),
-				selectedStyle.Render(icon),
-				selectedStyle.Render(item.title)))
-			s.WriteString(fmt.Sprintf("      %s\n", subtitleStyle.Render(item.description)))
-		} else {
-			s.WriteString(fmt.Sprintf("    %s %s\n",
-				mutedStyle.Render(icon),
-				normalStyle.Render(item.title)))
-		}
-	}
-
-	return s.String()
-}
-
-func (m Model) renderProjectSelect() string {
-	var s strings.Builder
-	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render("  select project"))
-	s.WriteString("\n\n")
-
-	for i, key := range m.projectKeys {
+func (m Model) projectRows(keys []string) []row {
+	rows := make([]row, 0, len(keys))
+	for _, key := range keys {
 		project, _ := m.config.GetProject(key)
-
-		typeIcon := IconFolder
+		icon := IconFolder
 		if project.Type == "pm2" {
-			typeIcon = IconServer
+			icon = IconServer
 		}
-
-		if i == m.cursor {
-			line := fmt.Sprintf("%s %s", project.Name, mutedStyle.Render(fmt.Sprintf("(%s)", project.Branch)))
-			s.WriteString(fmt.Sprintf("  %s %s %s\n",
-				selectedStyle.Render(IconArrow),
-				selectedStyle.Render(typeIcon),
-				selectedStyle.Render(line)))
-		} else {
-			line := fmt.Sprintf("%s (%s)", project.Name, project.Branch)
-			s.WriteString(fmt.Sprintf("    %s %s\n",
-				mutedStyle.Render(typeIcon),
-				normalStyle.Render(line)))
-		}
+		rows = append(rows, row{
+			icon:  icon,
+			title: project.Name,
+			meta:  project.Branch,
+			desc:  project.Path,
+		})
 	}
-
-	return s.String()
+	return rows
 }
 
-func (m Model) renderLogTypeMenu() string {
-	var s strings.Builder
-	project, _ := m.config.GetProject(m.selectedProject)
-	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render(fmt.Sprintf("  logs: %s", project.Name)))
-	s.WriteString("\n\n")
+func (m Model) tunnelRows() []row {
+	rows := make([]row, 0, len(m.tunnels))
+	for i, t := range m.tunnels {
+		cfg := m.config.Tunnels[i]
 
-	logIcons := []string{"◉", "◎", "◁"}
-	for i, item := range logTypeMenuItems {
-		icon := logIcons[i%len(logIcons)]
-		if i == m.cursor {
-			s.WriteString(fmt.Sprintf("  %s %s %s\n",
-				selectedStyle.Render(IconArrow),
-				selectedStyle.Render(icon),
-				selectedStyle.Render(item.title)))
-			s.WriteString(fmt.Sprintf("      %s\n", subtitleStyle.Render(item.description)))
-		} else {
-			s.WriteString(fmt.Sprintf("    %s %s\n",
-				mutedStyle.Render(icon),
-				normalStyle.Render(item.title)))
+		port := ":auto"
+		if t.Port() != 0 {
+			port = fmt.Sprintf(":%d", t.Port())
 		}
-	}
 
-	return s.String()
+		r := row{
+			icon:  IconSSH,
+			title: cfg.Name,
+			meta:  fmt.Sprintf("%s → %s:%d", port, cfg.RemoteHost, cfg.RemotePort),
+			badge: IconCircle + " inactive",
+			desc:  "enter to activate · e to change the local port",
+		}
+		if t.IsActive() {
+			r.badge = IconFilled + " active"
+			r.badgeOn = true
+			r.desc = "enter to deactivate · e to change the local port"
+		}
+		rows = append(rows, r)
+	}
+	return rows
 }
 
-func (m Model) renderDeploying() string {
-	// WHY: status/nginx/logs have no deploySteps, so just show a spinner.
-	if len(m.deploySteps) == 0 {
-		return fmt.Sprintf("%s running...\n", m.spinner.View())
-	}
-
-	var s strings.Builder
-	s.WriteString("\n  Desplegando...\n\n")
-	for _, st := range m.deploySteps {
-		switch st.status {
-		case stepDone:
-			s.WriteString(fmt.Sprintf("  %s %s\n", IconCheck, st.name))
-		case stepFailed:
-			s.WriteString(fmt.Sprintf("  %s %s\n", IconCross, st.name))
-		default:
-			s.WriteString(fmt.Sprintf("  %s %s\n", m.spinner.View(), st.name))
+func nginxRows() []row {
+	icons := []string{"◈", "◇", "◎", "◉"}
+	rows := make([]row, len(nginxActions))
+	for i, action := range nginxActions {
+		rows[i] = row{
+			icon:  icons[i%len(icons)],
+			title: action.title,
+			desc:  action.description,
 		}
 	}
-	return s.String()
+	return rows
 }
 
-func (m Model) logsViewportSize() (width, height int) {
-	height = m.height - 9
-	if height < 5 {
-		height = 5
+func (m Model) viewportSize() (width, height int) {
+	width = m.frameWidth() - 4
+	if width < 20 {
+		width = 20
 	}
-	width = m.width - 4
-	if width < 40 {
-		width = 40
+	// WHY: el panel come 2 líneas de borde y el título y el estado una cada uno.
+	height = m.bodyHeight() - 4
+	if height < 4 {
+		height = 4
 	}
 	return width, height
 }
@@ -1137,19 +929,14 @@ func (m *Model) refreshLogsViewport() {
 		return
 	}
 
-	contentWidth := m.viewport.Width - 2
-	if contentWidth < 10 {
-		contentWidth = 10
-	}
-
 	var content string
 	switch {
 	case len(m.logs) > 0:
-		content = logStyle.Width(contentWidth).Render(strings.Join(m.logs, "\n"))
+		content = logStyle.Width(m.viewport.Width).Render(strings.Join(m.logs, "\n"))
 	case m.streaming:
-		content = mutedStyle.Render("  connecting to stream...")
+		content = mutedStyle.Render("connecting to stream…")
 	default:
-		content = mutedStyle.Render("  no logs")
+		content = mutedStyle.Render("no logs")
 	}
 
 	m.viewport.SetContent(content)
@@ -1158,177 +945,180 @@ func (m *Model) refreshLogsViewport() {
 	}
 }
 
-func (m Model) renderLogs() string {
-	var s strings.Builder
-	s.WriteString(titleStyle.Render("logs"))
-	s.WriteString("\n\n")
-
-	if m.viewportReady {
-		s.WriteString(m.viewport.View())
+func (m Model) renderViewportPanel(width int, title, status string) string {
+	if !m.viewportReady {
+		return ""
 	}
-
-	return s.String()
+	return "  " + title + "\n" +
+		panelStyle.Width(width-2).Render(m.viewport.View()) + "\n" +
+		"  " + status
 }
 
-func (m Model) renderLogsStream() string {
-	var s strings.Builder
-	project, _ := m.config.GetProject(m.selectedProject)
-
-	s.WriteString(titleStyle.Render(project.Name))
-	s.WriteString(" ")
-	s.WriteString(errorStyle.Render(IconLive + " live"))
-	s.WriteString("\n\n")
-
-	if m.viewportReady {
-		s.WriteString(m.viewport.View())
-		s.WriteString("\n")
-	}
-
-	follow := "following"
-	if !m.logsFollow {
-		follow = "paused, ↓ to resume"
-	}
-	s.WriteString(subtitleStyle.Render(fmt.Sprintf("%d lines %s %s", len(m.logs), IconDot, follow)))
-
-	return s.String()
+func (m Model) scrollStatus() string {
+	return mutedStyle.Render(fmt.Sprintf("%d/%d · %.0f%%",
+		m.viewport.YOffset+1,
+		m.viewport.TotalLineCount(),
+		m.viewport.ScrollPercent()*100))
 }
 
-func (m Model) renderNginxMenu() string {
+func (m Model) renderConnecting() string {
+	return "\n  " + m.spinner.View() + " Establishing SSH connection…\n" +
+		"     " + mutedStyle.Render(IconSSH+" "+m.config.SSH.Host) + "\n"
+}
+
+func (m Model) renderBusy() string {
+	if len(m.deploySteps) == 0 {
+		return "\n  " + m.spinner.View() + " working…\n"
+	}
+
 	var s strings.Builder
 	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render("  nginx operations"))
+	s.WriteString(subtitleStyle.Render("  deploying"))
 	s.WriteString("\n\n")
 
-	nginxIcons := []string{"◈", "◇", "◎", "◉", "◁"}
-	for i, item := range nginxMenuItems {
-		icon := nginxIcons[i%len(nginxIcons)]
-		if i == m.cursor {
-			s.WriteString(fmt.Sprintf("  %s %s %s\n",
-				selectedStyle.Render(IconArrow),
-				selectedStyle.Render(icon),
-				selectedStyle.Render(item.title)))
-			s.WriteString(fmt.Sprintf("      %s\n", subtitleStyle.Render(item.description)))
-		} else {
-			s.WriteString(fmt.Sprintf("    %s %s\n",
-				mutedStyle.Render(icon),
-				normalStyle.Render(item.title)))
+	for _, st := range m.deploySteps {
+		var mark string
+		switch st.status {
+		case stepDone:
+			mark = successStyle.Render(IconCheck)
+		case stepFailed:
+			mark = errorStyle.Render(IconCross)
+		default:
+			mark = m.spinner.View()
 		}
+		s.WriteString("  " + mark + " " + normalStyle.Render(st.name) + "\n")
 	}
 
 	return s.String()
 }
 
-func (m Model) renderResult() string {
+func (m Model) renderResult(width int) string {
 	var s strings.Builder
 	s.WriteString("\n")
 
 	if m.resultSuccess {
-		s.WriteString(successStyle.Render(fmt.Sprintf("  %s operation completed", IconCheck)))
+		s.WriteString(successStyle.Render("  " + IconCheck + " operation completed"))
 	} else {
-		s.WriteString(errorStyle.Render(fmt.Sprintf("  %s operation failed", IconCross)))
+		s.WriteString(errorStyle.Render("  " + IconCross + " operation failed"))
 	}
 	s.WriteString("\n\n")
 
-	maxLines := m.height - 10
-	if maxLines < 10 {
-		maxLines = 10
+	maxLines := m.bodyHeight() - 4
+	if maxLines < 3 {
+		maxLines = 3
 	}
 
-	lines := strings.Split(m.result, "\n")
-
+	lines := strings.Split(strings.TrimRight(m.result, "\n"), "\n")
 	if len(lines) > maxLines {
-		s.WriteString(mutedStyle.Render(fmt.Sprintf("  showing last %d of %d lines\n\n", maxLines, len(lines))))
-		lines = lines[len(lines)-maxLines:]
+		lines = lines[len(lines)-(maxLines-1):]
+		s.WriteString(mutedStyle.Render(fmt.Sprintf("  showing the last %d lines\n", len(lines))))
 	}
-	s.WriteString(strings.Join(lines, "\n"))
 
+	s.WriteString(logStyle.Width(width - 4).PaddingLeft(2).Render(strings.Join(lines, "\n")))
 	return s.String()
 }
 
-func (m Model) renderScrollable() string {
-	var s strings.Builder
+func (m Model) renderTunnelPortEdit(width int) string {
+	t := m.tunnels[m.cursor()]
 
-	s.WriteString(titleStyle.Render(m.viewportTitle))
-	s.WriteString("\n")
+	inner := lipgloss.JoinVertical(lipgloss.Left,
+		normalStyle.Render("local port for "+t.Name),
+		"",
+		m.portInput.View(),
+		"",
+		mutedStyle.Render("valid range: 1-65535"),
+	)
 
-	scrollInfo := fmt.Sprintf("%d/%d %.0f%%",
-		m.viewport.YOffset+1,
-		m.viewport.TotalLineCount(),
-		m.viewport.ScrollPercent()*100)
-	s.WriteString(mutedStyle.Render(scrollInfo))
-	s.WriteString("\n\n")
-
-	s.WriteString(m.viewport.View())
-
-	return s.String()
+	return "\n" + panelStyle.Width(width-2).Render(inner)
 }
 
-func (m Model) renderTunnelsMenu() string {
-	var s strings.Builder
-	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render("  tunnel management"))
-	s.WriteString("\n\n")
+func (m Model) helpText() string {
+	d := " " + IconDot + " "
+	switch m.state {
+	case viewConnecting, viewBusy:
+		return "please wait…"
+	case viewResult:
+		return "enter/esc back"
+	case viewLogs, viewScrollable:
+		return "↑↓ scroll" + d + "esc back"
+	case viewLogsStream:
+		return "↑↓ scroll" + d + "esc stop"
+	}
 
-	if len(m.tunnels) == 0 {
-		s.WriteString(mutedStyle.Render("  no tunnels configured\n"))
-		s.WriteString(mutedStyle.Render("  agrega tunnels: en config.yaml\n"))
+	if m.editingTunnelPort {
+		return "enter confirm" + d + "esc cancel"
+	}
+
+	nav := "↑↓ navigate" + d + "1-5/tab switch" + d + "q quit"
+	switch m.activeTab {
+	case tabDeploy:
+		return "enter deploy" + d + nav
+	case tabLogs:
+		return "enter live" + d + "l last 100" + d + nav
+	case tabPM2:
+		return "enter restart" + d + "s status" + d + nav
+	case tabTunnels:
+		action := "activate"
+		if c := m.cursor(); c < len(m.tunnels) && m.tunnels[c].IsActive() {
+			action = "deactivate"
+		}
+		return "enter " + action + d + "e port" + d + nav
+	case tabNginx:
+		return "enter run" + d + nav
+	}
+	return nav
+}
+
+func (m Model) renderSplash() string {
+	var s strings.Builder
+
+	logoLines := strings.Split(LogoClean, "\n")
+	totalHeight := len(logoLines) + 8
+	topPadding := (m.height - totalHeight) / 2
+	if topPadding < 0 {
+		topPadding = 1
+	}
+	s.WriteString(strings.Repeat("\n", topPadding))
+
+	for i, line := range logoLines {
+		if line == "" {
+			s.WriteString("\n")
+			continue
+		}
+		var style lipgloss.Style
+		switch pos := float64(i) / float64(len(logoLines)); {
+		case pos < 0.33:
+			style = logoGradientStyle1
+		case pos < 0.66:
+			style = logoGradientStyle2
+		default:
+			style = logoGradientStyle3
+		}
+		s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, style.Render(line)))
 		s.WriteString("\n")
 	}
 
-	icons := []string{"◈", "◉", "◎", "◐", "◆"}
-	for i, t := range m.tunnels {
-		cfg := m.config.Tunnels[i]
-		icon := icons[i%len(icons)]
-		portLabel := fmt.Sprintf(":%d", t.Port())
-		if t.Port() == 0 {
-			portLabel = ":auto"
-		}
-		label := fmt.Sprintf("%s  %s → %s:%d", cfg.Name, portLabel, cfg.RemoteHost, cfg.RemotePort)
-
-		var statusStr string
-		if t.IsActive() {
-			statusStr = successStyle.Render("● active")
-		} else {
-			statusStr = mutedStyle.Render("○ inactive")
-		}
-
-		if i == m.cursor {
-			s.WriteString(fmt.Sprintf("  %s %s %s  %s\n",
-				selectedStyle.Render(IconArrow),
-				selectedStyle.Render(icon),
-				selectedStyle.Render(label),
-				statusStr))
-		} else {
-			s.WriteString(fmt.Sprintf("    %s %s  %s\n",
-				mutedStyle.Render(icon),
-				normalStyle.Render(label),
-				statusStr))
-		}
+	decorWidth := 35
+	if m.width < 50 {
+		decorWidth = 20
 	}
-
-	backIdx := len(m.tunnels)
-	if backIdx == m.cursor {
-		s.WriteString(fmt.Sprintf("  %s %s\n",
-			selectedStyle.Render(IconArrow),
-			selectedStyle.Render("← Back")))
-	} else {
-		s.WriteString(fmt.Sprintf("    %s\n", mutedStyle.Render("← Back")))
-	}
-
-	return s.String()
-}
-
-func (m Model) renderTunnelPortEdit() string {
-	var s strings.Builder
-	t := m.tunnels[m.cursor]
-
 	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render(fmt.Sprintf("  local port for %s", t.Name)))
+	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, accentLineStyle.Render(strings.Repeat("─", decorWidth))))
 	s.WriteString("\n\n")
-	s.WriteString("  ")
-	s.WriteString(m.portInput.View())
+
+	subtitle := "Deploy System"
+	if m.width >= 50 {
+		subtitle = "Cloud Remote Server • Deploy System"
+	}
+	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, splashSubtitleStyle.Render(subtitle)))
 	s.WriteString("\n\n")
-	s.WriteString(subtitleStyle.Render("  valid range: 1-65535"))
+
+	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, versionBadgeStyle.Render(fmt.Sprintf(" v%s ", AppVersion))))
+	s.WriteString("\n\n")
+
+	blink := []string{"▸", "▹"}[(m.splashTick/3)%2]
+	press := fmt.Sprintf("%s press any key to continue %s", blink, blink)
+	s.WriteString(lipgloss.PlaceHorizontal(m.width, lipgloss.Center, mutedStyle.Render(press)))
 
 	return s.String()
 }
