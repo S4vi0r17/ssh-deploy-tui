@@ -95,7 +95,7 @@ projects:
     branch: main
     package_manager: bun
     install_cmd: bun install
-    build_cmd: bun run build
+    build_cmd: bun run build --outDir {{out}} --emptyOutDir
     output_dir: dist
 
 nginx:
@@ -110,6 +110,20 @@ tunnels:
     remote_port: 3306 # port on the server
     auto_start: true # activate on connect
 ```
+
+### `output_dir` and `{{out}}`
+
+With both set, the build never runs over the directory being served. `{{out}}`
+is replaced with `<output_dir>.new`, so a deploy builds there while
+`output_dir` keeps serving the previous version, and publishes with
+`mv dist dist.old && mv dist.new dist`. A failed build leaves `output_dir`
+untouched.
+
+Pass the staging dir the way your toolchain expects — `--outDir {{out}}` for
+Vite, `BUILD_OUT={{out}}` for SvelteKit's adapter-node.
+
+Without `{{out}}` the build runs over `output_dir` directly: the site is down
+for the length of the build, and the only net is a backup restored on failure.
 
 ### `init_cmd`
 
@@ -133,4 +147,4 @@ init_cmd: "export PATH=$HOME/.local/share/fnm:$PATH && eval \"$(fnm env --shell 
 
 ## Contributing
 
-See [CONVENTIONS.md](CONVENTIONS.md) for code style and comment guidelines.
+See [CONVENTIONS.md](CONVENTIONS.md) for code style, comment tags and commit conventions.
