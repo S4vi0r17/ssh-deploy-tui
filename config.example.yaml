@@ -38,8 +38,9 @@ projects:
     package_manager: bun
     install_cmd: bun install
     # test_cmd: bun test   # opcional
-    build_cmd: bun run build
-    # output_dir: se respalda antes del build y se restaura si el build falla.
+    # {{out}} = dist.new. Se compila ahi mientras dist sigue sirviendo, y al
+    # terminar se publica con un swap. Ver README.
+    build_cmd: bun run build --outDir {{out}} --emptyOutDir
     output_dir: dist
 
 # Configuracion de Nginx

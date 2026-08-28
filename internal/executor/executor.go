@@ -9,6 +9,10 @@ import (
 	"sdt/internal/ssh"
 )
 
+// WHY: un hueco en build_cmd sirve para cualquier toolchain (`--outDir {{out}}`
+// de vite, `BUILD_OUT={{out}}` de adapter-node) sin hardcodear una flag.
+const outPlaceholder = "{{out}}"
+
 type StepResult struct {
 	Step    string
 	Success bool
@@ -54,10 +58,14 @@ func (e *Executor) Deploy(progress chan<- StepProgress) error {
 		}{"Ejecutar tests", e.runTests})
 	}
 
+	buildStep := "Build"
+	if strings.TrimSpace(e.project.OutputDir) != "" && strings.Contains(e.project.BuildCmd, outPlaceholder) {
+		buildStep = "Build + swap atomico"
+	}
 	steps = append(steps, struct {
 		name string
 		fn   func() (string, error)
-	}{"Build", e.build})
+	}{buildStep, e.build})
 
 	if e.project.Type == "pm2" {
 		steps = append(steps, struct {
@@ -129,44 +137,105 @@ func (e *Executor) installDeps() (string, error) {
 	return out, nil
 }
 
-// WHY: with output_dir set, backs up the previous build and rolls back to it
-// on failure, so the site keeps serving the last working version. Without
-// output_dir there's nothing to back up, so it just builds.
 func (e *Executor) build() (string, error) {
 	path := e.project.Path
 	dir := strings.TrimSpace(e.project.OutputDir)
-	withBackup := dir != ""
 
-	if withBackup {
-		// WHY: `|| true` so this doesn't fail when there's no prior build yet.
-		backup := fmt.Sprintf(
-			"cd %s && rm -rf %s.backup && { cp -r %s %s.backup 2>/dev/null || true; }",
-			path, dir, dir, dir,
-		)
-		if out, err := e.sshClient.Run(backup); err != nil {
-			return out, fmt.Errorf("respaldo: %v", err)
-		}
+	if dir == "" {
+		return e.sshClient.Run(fmt.Sprintf("cd %s && %s", path, e.project.BuildCmd))
+	}
+	if !validOutputDir(dir) {
+		return "", fmt.Errorf("output_dir invalido: %q (debe ser una ruta relativa dentro del proyecto, sin metacaracteres)", dir)
+	}
+	if strings.Contains(e.project.BuildCmd, outPlaceholder) {
+		return e.buildStaged(path, dir)
+	}
+	return e.buildInPlace(path, dir)
+}
+
+func (e *Executor) buildStaged(path, dir string) (string, error) {
+	staged, previous := dir+".new", dir+".old"
+
+	clean := fmt.Sprintf("cd %s && rm -rf %s %s", path, staged, previous)
+	if out, err := e.sshClient.Run(clean); err != nil {
+		return out, fmt.Errorf("limpiar build anterior: %v", err)
+	}
+
+	cmd := strings.ReplaceAll(e.project.BuildCmd, outPlaceholder, staged)
+	out, err := e.sshClient.Run(fmt.Sprintf("cd %s && %s", path, cmd))
+	if err != nil {
+		e.sshClient.Run(fmt.Sprintf("cd %s && rm -rf %s", path, staged))
+		return out, fmt.Errorf("build fallido, %s sigue intacto: %v", dir, err)
+	}
+
+	// WHY: un build_cmd que ignora {{out}} sale con 0 sin escribir staged, y el
+	// swap publicaria un directorio vacio sobre el sitio vivo.
+	check := fmt.Sprintf(`cd %s && [ -d %s ] && [ -n "$(ls -A %s)" ]`, path, staged, staged)
+	if _, err := e.sshClient.Run(check); err != nil {
+		return out, fmt.Errorf("el build no genero %s, no se hizo swap (revisa que build_cmd use %s)", staged, outPlaceholder)
+	}
+
+	// WHY: rename(2) no intercambia dos directorios en una llamada, asi que la
+	// ventana son los microsegundos entre ambos mv. `|| true` cubre el primer
+	// deploy, donde todavia no hay dir vivo que mover.
+	swap := fmt.Sprintf(
+		"cd %s && { mv %s %s 2>/dev/null || true; } && mv %s %s",
+		path, dir, previous, staged, dir,
+	)
+	if sout, err := e.sshClient.Run(swap); err != nil {
+		e.sshClient.Run(fmt.Sprintf("cd %s && { [ -d %s ] || mv %s %s; }", path, dir, previous, dir))
+		return sout, fmt.Errorf("swap fallido, se restauro el build anterior: %v", err)
+	}
+
+	e.sshClient.Run(fmt.Sprintf("cd %s && rm -rf %s", path, previous))
+
+	return out, nil
+}
+
+// - Compila sobre el dir vivo: el sitio cae mientras dura el build. Usar
+// {{out}} en build_cmd para tener el swap.
+func (e *Executor) buildInPlace(path, dir string) (string, error) {
+	// WHY: `if` y no `[ -d x ] && cp ... || true`, que se traga un cp a medias
+	// y deja un respaldo corrupto que un build fallido restaura.
+	backup := fmt.Sprintf(
+		"cd %s && rm -rf %s.backup && if [ -d %s ]; then cp -r %s %s.backup; fi",
+		path, dir, dir, dir, dir,
+	)
+	if out, err := e.sshClient.Run(backup); err != nil {
+		return out, fmt.Errorf("respaldo: %v", err)
 	}
 
 	out, err := e.sshClient.Run(fmt.Sprintf("cd %s && %s", path, e.project.BuildCmd))
 	if err != nil {
-		if withBackup {
-			restore := fmt.Sprintf(
-				"cd %s && rm -rf %s && { mv %s.backup %s 2>/dev/null || true; }",
-				path, dir, dir, dir,
-			)
-			// WHY: ignore this error — we're already on the failure path.
-			e.sshClient.Run(restore)
-			return out, fmt.Errorf("build fallido, se restauro el build anterior: %v", err)
-		}
-		return out, err
+		// WHY: mover el build roto en vez de borrarlo primero deja el dir vivo
+		// ausente dos renames y no lo que tarde un rm -rf.
+		restore := fmt.Sprintf(
+			"cd %s && if [ -d %s.backup ]; then mv %s %s.broken 2>/dev/null || true; mv %s.backup %s; rm -rf %s.broken; fi",
+			path, dir, dir, dir, dir, dir, dir,
+		)
+		e.sshClient.Run(restore)
+		return out, fmt.Errorf("build fallido, se restauro el build anterior: %v", err)
 	}
 
-	if withBackup {
-		e.sshClient.Run(fmt.Sprintf("cd %s && rm -rf %s.backup", path, dir))
-	}
+	e.sshClient.Run(fmt.Sprintf("cd %s && rm -rf %s.backup", path, dir))
 
 	return out, nil
+}
+
+// SECURITY: dir se interpola sin comillas en rm -rf y mv.
+func validOutputDir(dir string) bool {
+	if strings.HasPrefix(dir, "/") || strings.HasPrefix(dir, "~") {
+		return false
+	}
+	if strings.ContainsAny(dir, " \t\n;&|$`<>()*?[]{}\"'\\") {
+		return false
+	}
+	for _, seg := range strings.Split(dir, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Executor) flushPM2() (string, error) {
