@@ -147,4 +147,4 @@ init_cmd: "export PATH=$HOME/.local/share/fnm:$PATH && eval \"$(fnm env --shell 
 
 ## Contributing
 
-See [CONVENTIONS.md](CONVENTIONS.md) for code style and comment guidelines.
+See [CONVENTIONS.md](CONVENTIONS.md) for code style, comment tags and commit conventions.
