@@ -4,14 +4,11 @@ ssh:
   host: tu-ip-o-dominio
   port: 22
   user: tu-usuario
-  identity_file: $HOME/.ssh/id_rsa  # Ruta a tu llave privada SSH
-  # init_cmd se ejecuta antes de cada comando SSH porque las sesiones no-interactivas
-  # no cargan .zshrc. Se asume fnm siempre:
-  #
-  # Usa fnm con zsh y $HOME para configurar el entorno en shells no interactivos
+  identity_file: $HOME/.ssh/id_rsa
+  # Las sesiones SSH no-interactivas no cargan .zshrc, asi que node/bun/pnpm
+  # no estan en el PATH sin esto.
   init_cmd: "export PATH=$HOME/.local/share/fnm:$PATH && eval \"$(fnm env --shell zsh)\" && export PATH=$HOME/.bun/bin:$HOME/.local/share/pnpm:$PATH && export GIT_SSH_COMMAND='ssh -i $HOME/.ssh/id_rsa -o IdentitiesOnly=yes'"
 
-# Proyectos en el VPS
 projects:
   mi-backend:
     name: "Mi Backend"
@@ -20,15 +17,9 @@ projects:
     branch: main
     package_manager: pnpm
     install_cmd: pnpm install
-    # test_cmd es OPCIONAL: si se define, los tests se corren tras instalar y
-    # antes del build. Si fallan, el deploy se aborta (no se toca el servidor).
-    # Omitelo para saltar los tests.
-    test_cmd: pnpm test
+    test_cmd: pnpm test # opcional, aborta el deploy si falla
     build_cmd: pnpm build
     pm2_name: mi-backend
-    # output_dir activa el backup+rollback del build tambien en proyectos pm2
-    # (ej. dist). Omitelo si el backend no tiene carpeta de build.
-    # output_dir: dist
 
   mi-frontend:
     name: "Mi Frontend"
@@ -37,22 +28,18 @@ projects:
     branch: main
     package_manager: bun
     install_cmd: bun install
-    # test_cmd: bun test   # opcional
     # {{out}} = dist.new. Se compila ahi mientras dist sigue sirviendo, y al
     # terminar se publica con un swap. Ver README.
     build_cmd: bun run build --outDir {{out}} --emptyOutDir
     output_dir: dist
 
-# Configuracion de Nginx
 nginx:
   config_path: /etc/nginx/nginx.conf
   sites_path: /etc/nginx/sites-available
 
-# Tunnels SSH (port forwarding local)
-# Accede desde el menu principal > Tunnels
 tunnels:
   - name: "MySQL CRS"
-    local_port: 3306      # puerto en tu maquina
-    remote_host: "127.0.0.1"  # host desde el servidor
-    remote_port: 3306     # puerto en el servidor
-    auto_start: true      # activar automaticamente al conectar
+    local_port: 3306
+    remote_host: "127.0.0.1"
+    remote_port: 3306
+    auto_start: true
