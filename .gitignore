@@ -35,4 +35,8 @@ config.yaml
 
 # Editor/IDE
 .idea/
-.vscode/
+
+# Del .vscode solo se versiona lo compartido
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
