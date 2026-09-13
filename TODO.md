@@ -11,6 +11,7 @@
 - [ ] Historial de deploys - Log local con fecha, proyecto y resultado
 
 ## PM2
+- [ ] Reload graceful suelto (`r`) - hoy solo corre dentro del deploy, y solo aporta en cluster
 - [ ] Stop/Delete procesos
 - [ ] Escalar instancias (pm2 scale)
 - [ ] Métricas en tiempo real - CPU/RAM por proceso
