@@ -60,7 +60,7 @@ var nginxActions = []menuItem{
 	{title: "Reload", description: "Reload nginx without dropping connections"},
 }
 
-// WHY: lo escribe la goroutine del stream y lo lee el tick de la UI — necesita mutex.
+// SYNC: lo escribe la goroutine del stream y lo lee el tick de la UI — necesita mutex.
 type logBuffer struct {
 	lines []string
 	mu    sync.Mutex
@@ -159,8 +159,7 @@ func NewModel(cfg *config.Config) Model {
 	s.Spinner = spinner.Dot
 	s.Style = spinnerStyle
 
-	// WHY: GetProjectList recorre un map, así que sin ordenar las filas cambian
-	// de posición entre ejecuciones y el cursor deja de ser predecible.
+	// WHY: GetProjectList recorre un map; sin ordenar, las filas cambian de posición.
 	keys := cfg.GetProjectList()
 	sort.Strings(keys)
 

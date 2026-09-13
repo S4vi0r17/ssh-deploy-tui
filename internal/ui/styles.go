@@ -125,8 +125,7 @@ var (
 			BorderForeground(surface1).
 			Padding(0, 1)
 
-	// WHY: la fila activa se pinta como barra completa; cada fragmento lleva su
-	// propio Background porque lipgloss no propaga el fondo a texto ya estilado.
+	// WHY: cada fragmento lleva su Background porque lipgloss no lo propaga a texto ya estilado.
 	rowSelectedStyle = lipgloss.NewStyle().
 				Foreground(mauve).
 				Background(surface0).

@@ -72,7 +72,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !found {
 			m.deploySteps = append(m.deploySteps, deployStep{name: msg.name, status: msg.status})
 		}
-		// WHY: se re-arma para tomar también el paso siguiente o el resultado final.
+		// SYNC: se re-arma para tomar también el paso siguiente o el resultado final.
 		return m, waitForDeploy(m.deployChan)
 
 	case deployDoneMsg:
@@ -305,8 +305,7 @@ func (m Model) rowCount() int {
 	return 0
 }
 
-// WHY: el cursor vive por pestaña y las filas de Tunnels aparecen recién tras
-// conectar, así que se acota en la lectura en vez de al cambiar de pestaña.
+// WHY: las filas de Tunnels aparecen tras conectar, así que el cursor se acota al leerlo.
 func (m Model) cursor() int {
 	c := m.cursors[m.activeTab]
 	if n := m.rowCount(); c >= n {

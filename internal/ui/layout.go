@@ -9,10 +9,9 @@ import (
 const (
 	maxFrameWidth = 92
 	minFrameWidth = 46
-	// WHY: alto del cromo fijo (header 3 + tabs 2 + separador 1 + help 2) para
-	// que el cuerpo tenga siempre la misma altura y nada salte entre pantallas.
+	// WHY: cromo de alto fijo (header 3 + tabs 2 + separador 1 + help 2) para que nada salte.
 	chromeHeight = 8
-	// Ancho mínimo para la barra de pestañas dibujada; abajo de eso se usa la compacta.
+	// WHY: abajo de este ancho la barra de pestañas dibujada no entra y se usa la compacta.
 	fancyTabsMinWidth = 62
 )
 

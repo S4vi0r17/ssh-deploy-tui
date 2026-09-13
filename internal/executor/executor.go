@@ -9,8 +9,7 @@ import (
 	"sdt/internal/ssh"
 )
 
-// WHY: un hueco en build_cmd sirve para cualquier toolchain (`--outDir {{out}}`
-// de vite, `BUILD_OUT={{out}}` de adapter-node) sin hardcodear una flag.
+// WHY: un hueco en build_cmd sirve para cualquier toolchain sin hardcodear su flag.
 const outPlaceholder = "{{out}}"
 
 type StepResult struct {
@@ -79,7 +78,7 @@ func (e *Executor) Deploy(progress chan<- StepProgress) error {
 	}
 
 	for _, step := range steps {
-		progress <- StepProgress{Name: step.name} // running
+		progress <- StepProgress{Name: step.name} // corriendo
 
 		output, err := step.fn()
 		if err != nil {
@@ -191,8 +190,7 @@ func (e *Executor) buildStaged(path, dir string) (string, error) {
 	return out, nil
 }
 
-// - Compila sobre el dir vivo: el sitio cae mientras dura el build. Usar
-// {{out}} en build_cmd para tener el swap.
+// WHY: compila sobre el dir vivo y el sitio cae durante el build; con {{out}} hay swap.
 func (e *Executor) buildInPlace(path, dir string) (string, error) {
 	// WHY: `if` y no `[ -d x ] && cp ... || true`, que se traga un cp a medias
 	// y deja un respaldo corrupto que un build fallido restaura.

@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// WHY: el deploy corre en su goroutine y empuja cada paso a ch; la UI drena con waitForDeploy.
+// SYNC: el deploy corre en su goroutine y empuja cada paso a ch; la UI drena con waitForDeploy.
 func deployRunner(project config.Project, sshClient *ssh.Client, ch chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		go func() {

@@ -64,7 +64,7 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-// WHY: acotado a 3s — un socket muerto puede no dar error hasta que el SO lo note.
+// SYNC: acotado a 3s — un socket muerto puede no dar error hasta que el SO lo note.
 func (c *Client) IsAlive() bool {
 	conn := c.GetConn()
 	if conn == nil {

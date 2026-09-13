@@ -20,7 +20,7 @@ type SSHConfig struct {
 type Project struct {
 	Name           string `yaml:"name"`
 	Path           string `yaml:"path"`
-	Type           string `yaml:"type"` // "pm2" or "static"
+	Type           string `yaml:"type"` // "pm2" o "static"
 	Branch         string `yaml:"branch"`
 	PackageManager string `yaml:"package_manager"`
 	InstallCmd     string `yaml:"install_cmd"`
