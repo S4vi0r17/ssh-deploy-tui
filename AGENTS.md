@@ -44,12 +44,22 @@ Loop estándar de Bubble Tea. Toda llamada SSH vive en un `tea.Cmd`, nunca en
 `Update`. El deploy corre en goroutine y reporta pasos por un canal que drena
 `waitForDeploy`.
 
+| Archivo       | Responsabilidad                           |
+| ------------- | ----------------------------------------- |
+| `model.go`    | `Model`, estados, tabs y tipos de mensaje |
+| `update.go`   | `Update`, teclas y cursor                 |
+| `actions.go`  | Lo que dispara cada tecla                 |
+| `commands.go` | Los `tea.Cmd` — todo lo que habla por SSH |
+| `view.go`     | `View` y los `render*`                    |
+| `layout.go`   | Cromo: header, tabs, paneles y filas      |
+| `styles.go`   | Paleta Catppuccin Mocha y estilos         |
+
 ## Convenciones
 
 `CONVENTIONS.md` manda para comentarios y commits — leerlo antes de escribir
 cualquiera de los dos.
 
-Identificadores en inglés; errores y texto de pantalla en español.
+Identificadores en inglés; comentarios, errores y texto de pantalla en español.
 
 ## No
 

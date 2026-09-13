@@ -7,7 +7,7 @@ Deploy and manage remote projects from your terminal. Built with Go + [Bubble Te
 ## Features
 
 - **One-step deploy** — git pull, install, build and restart
-- **PM2** — status, real-time logs, restart
+- **PM2** — status with exec mode, real-time logs, restart one or all
 - **Nginx** — view config, test syntax, reload
 - **Tunnels** — SSH port forwarding (e.g. remote DB on localhost)
 - **Multi-project** — PM2 or static, all from one config
