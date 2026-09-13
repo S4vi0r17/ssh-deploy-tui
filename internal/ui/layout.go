@@ -76,10 +76,16 @@ func (m Model) renderTabBar(width int) string {
 
 	for i, t := range tabs {
 		if tabID(i) == m.activeTab {
-			top.WriteString(tabActiveEdgeStyle.Render("╭─ ") + tabActiveStyle.Render(t.name) + tabActiveEdgeStyle.Render(" ─╮"))
-			bottom.WriteString(tabActiveEdgeStyle.Render("┘") + strings.Repeat(" ", len(t.name)+4) + tabActiveEdgeStyle.Render("└"))
+			top.WriteString(tabActiveEdgeStyle.Render("╭─ "))
+			top.WriteString(tabActiveStyle.Render(t.name))
+			top.WriteString(tabActiveEdgeStyle.Render(" ─╮"))
+			bottom.WriteString(tabActiveEdgeStyle.Render("┘"))
+			bottom.WriteString(strings.Repeat(" ", len(t.name)+4))
+			bottom.WriteString(tabActiveEdgeStyle.Render("└"))
 		} else {
-			top.WriteString("   " + tabInactiveStyle.Render(t.name) + "   ")
+			top.WriteString("   ")
+			top.WriteString(tabInactiveStyle.Render(t.name))
+			top.WriteString("   ")
 			bottom.WriteString(tabRuleStyle.Render(strings.Repeat("─", len(t.name)+6)))
 		}
 		used += len(t.name) + 6
