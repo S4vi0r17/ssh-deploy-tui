@@ -295,27 +295,31 @@ func GetPM2Logs(sshClient *ssh.Client, pm2Name string, lines int) ([]string, err
 	return logs, nil
 }
 
+// NOTE: en cluster cada worker es una fila propia repitiendo el total de instancias.
 func GetPM2Status(sshClient *ssh.Client) (string, error) {
 	cmd := `pm2 jlist | python3 -c "
-import sys, json
+import sys, json, time
 data = json.load(sys.stdin)
-print(f'{'ID':<4} {'NOMBRE':<22} {'STATUS':<10} {'CPU':<6} {'MEM':<10} {'UPTIME'}')
-print('-' * 70)
+print('%-4s %-22s %-10s %-12s %-6s %-10s %s' % ('ID', 'NOMBRE', 'STATUS', 'MODO', 'CPU', 'MEM', 'UPTIME'))
+print('-' * 82)
 for p in data:
+    env = p.get('pm2_env', {})
     name = p.get('name', '')[:20]
-    status = p.get('pm2_env', {}).get('status', 'N/A')
+    status = env.get('status', 'N/A')
+    mode = env.get('exec_mode', '').replace('_mode', '') or 'N/A'
+    if mode == 'cluster':
+        mode = 'cluster x' + str(env.get('instances') or 1)
     cpu = str(p.get('monit', {}).get('cpu', 0)) + '%'
     mem = str(round(p.get('monit', {}).get('memory', 0) / 1024 / 1024, 1)) + 'MB'
-    uptime = p.get('pm2_env', {}).get('pm_uptime', 0)
+    uptime = env.get('pm_uptime', 0)
     if uptime:
-        import time
         secs = int(time.time() * 1000 - uptime) // 1000
         h, m = secs // 3600, (secs % 3600) // 60
         uptime_str = f'{h}h {m}m'
     else:
         uptime_str = 'N/A'
     status_icon = '🟢' if status == 'online' else '🔴'
-    print(f'{p.get(\"pm_id\", 0):<4} {name:<22} {status_icon} {status:<7} {cpu:<6} {mem:<10} {uptime_str}')
+    print(f'{p.get(\"pm_id\", 0):<4} {name:<22} {status_icon} {status:<7} {mode:<12} {cpu:<6} {mem:<10} {uptime_str}')
 "`
 	out, err := sshClient.Run(cmd)
 	if err != nil {
