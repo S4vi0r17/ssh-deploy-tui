@@ -14,7 +14,19 @@ No:
 - Comentario que repite el nombre de la función/variable.
 - Encabezados decorativos o separadores tipo banner.
 - Un comentario por línea o por campo "explicando" lo obvio.
-- Comentarios de varias líneas: si no entra en una, casi siempre sobra texto.
+
+### Forma
+
+- **Una línea.** Si no entra, casi siempre sobra texto.
+- **Excepción:** los que explican un comando destructivo en el servidor (`rm -rf`,
+  `mv`, el swap de renames). Ahí el porqué completo vale más que la brevedad.
+- **Todo comentario lleva tag**, salvo dos casos: los doc comments de Go que
+  empiezan con el nombre de la función y los rótulos de un bloque de datos.
+- **Al final de línea solo para glosar un valor**, nunca para un `WHY:`:
+
+```go
+inner := width - 6 // 2 de borde + 4 de padding
+```
 
 ### Tags (Better Comments)
 
@@ -24,14 +36,9 @@ Cuando un comentario es necesario, usa estos tags — coinciden con
 | Tag         | Uso                                                           |
 | ----------- | ------------------------------------------------------------- |
 | `WHY:`      | Razón detrás de una decisión no obvia                         |
+| `SYNC:`     | Invariante entre goroutines, canal o mutex                    |
 | `NOTE:`     | Contexto externo que no se deduce del código (SSH, PM2, YAML) |
-| `TODO:`     | Trabajo pendiente                                             |
-| `FIXME:`    | Bug conocido, falta arreglar                                  |
-| `HACK:`     | Solución temporal/sucia                                       |
-| `PERF:`     | Código sensible a rendimiento, explica el trade-off           |
-| `SECURITY:` | Código relevante para seguridad (auth, secretos)              |
-| `!`         | Crítico, debe leerse antes de tocar esa zona                  |
-| `-`         | Deprecado / candidato a borrar                                |
+| `SECURITY:` | Config que se interpola sin comillas en un comando remoto     |
 
 ```go
 // WHY: sin mutex — la UI es secuencial, no hay escrituras concurrentes.

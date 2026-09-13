@@ -18,16 +18,7 @@
       "italic": true
     },
     {
-      "tag": "!",
-      "color": "#e78284",
-      "strikethrough": false,
-      "underline": false,
-      "backgroundColor": "transparent",
-      "bold": false,
-      "italic": false
-    },
-    {
-      "tag": "PERF",
+      "tag": "SYNC",
       "color": "#cba6f7",
       "strikethrough": false,
       "underline": false,
@@ -36,35 +27,8 @@
       "italic": false
     },
     {
-      "tag": "TODO",
-      "color": "#ef9f76",
-      "strikethrough": false,
-      "underline": false,
-      "backgroundColor": "transparent",
-      "bold": false,
-      "italic": false
-    },
-    {
-      "tag": "HACK",
-      "color": "#fab387",
-      "strikethrough": false,
-      "underline": false,
-      "backgroundColor": "transparent",
-      "bold": false,
-      "italic": false
-    },
-    {
-      "tag": "FIXME",
-      "color": "#ea999c",
-      "strikethrough": false,
-      "underline": false,
-      "backgroundColor": "transparent",
-      "bold": false,
-      "italic": false
-    },
-    {
       "tag": "NOTE",
-      "color": "#e5c890",
+      "color": "#f9e2af",
       "strikethrough": false,
       "underline": false,
       "backgroundColor": "transparent",
@@ -73,20 +37,11 @@
     },
     {
       "tag": "SECURITY",
-      "color": "#f5c2e7",
+      "color": "#f38ba8",
       "strikethrough": false,
       "underline": false,
       "backgroundColor": "transparent",
-      "bold": false,
-      "italic": false
-    },
-    {
-      "tag": "-",
-      "color": "#bac2de",
-      "strikethrough": false,
-      "underline": false,
-      "backgroundColor": "transparent",
-      "bold": false,
+      "bold": true,
       "italic": false
     }
   ]
