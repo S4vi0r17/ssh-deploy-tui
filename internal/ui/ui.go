@@ -686,12 +686,12 @@ func deployRunner(project config.Project, sshClient *ssh.Client, ch chan tea.Msg
 
 			results := exec.GetResults()
 			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("deploy of %s\n\n", project.Name))
+			fmt.Fprintf(&sb, "deploy of %s\n\n", project.Name)
 			for _, r := range results {
 				if r.Success {
-					sb.WriteString(fmt.Sprintf("  %s %s\n", IconCheck, r.Step))
+					fmt.Fprintf(&sb, "  %s %s\n", IconCheck, r.Step)
 				} else {
-					sb.WriteString(fmt.Sprintf("  %s %s: %s\n", IconCross, r.Step, r.Error))
+					fmt.Fprintf(&sb, "  %s %s: %s\n", IconCross, r.Step, r.Error)
 				}
 			}
 			ch <- deployDoneMsg{success: true, message: sb.String()}
@@ -731,12 +731,12 @@ func restartAllRunner(projects []config.Project, sshClient *ssh.Client, ch chan 
 				if _, err := executor.New(project, sshClient).Restart(); err != nil {
 					failed++
 					ch <- deployStepMsg{name: project.Name, status: stepFailed}
-					sb.WriteString(fmt.Sprintf("  %s %s: %v\n", IconCross, project.Name, err))
+					fmt.Fprintf(&sb, "  %s %s: %v\n", IconCross, project.Name, err)
 					continue
 				}
 
 				ch <- deployStepMsg{name: project.Name, status: stepDone}
-				sb.WriteString(fmt.Sprintf("  %s %s\n", IconCheck, project.Name))
+				fmt.Fprintf(&sb, "  %s %s\n", IconCheck, project.Name)
 			}
 
 			ch <- deployDoneMsg{success: failed == 0, message: sb.String()}
