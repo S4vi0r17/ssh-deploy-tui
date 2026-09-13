@@ -41,7 +41,8 @@ The UI is organized in five tabs — Deploy, Logs, PM2, Tunnels, Nginx.
 | `↑` `↓` / `k` `j` | Move within the tab                       |
 | `enter`         | Primary action of the tab                   |
 | `l`             | Logs tab: last 100 lines instead of live    |
-| `s`             | PM2 tab: full `pm2 status`                  |
+| `R`             | PM2 tab: restart every pm2 project          |
+| `s`             | PM2 tab: full `pm2 status` (with exec mode) |
 | `e`             | Tunnels tab: change the local port          |
 | `esc`           | Leave a log/result panel                    |
 | `q`, `ctrl+c`   | Quit                                        |

@@ -95,6 +95,7 @@ type Model struct {
 	logBuffer         *logBuffer
 	streamStopCh      chan struct{}
 	connectionError   string
+	busyLabel         string
 	viewportTitle     string
 	selectedProject   string
 	result            string
@@ -434,6 +435,11 @@ func (m Model) handleTabKey(key string) (tea.Model, tea.Cmd) {
 			return m.showLastLogs(m.pm2Keys[m.cursor()])
 		}
 
+	case "R":
+		if m.activeTab == tabPM2 && m.rowCount() > 0 {
+			return m.startRestartAll()
+		}
+
 	case "s":
 		if m.activeTab == tabPM2 {
 			m.state = viewBusy
@@ -521,6 +527,7 @@ func (m Model) startDeploy(key string) (tea.Model, tea.Cmd) {
 	project, _ := m.config.GetProject(key)
 	m.selectedProject = key
 	m.state = viewBusy
+	m.busyLabel = "deploying"
 	m.logs = nil
 	m.deploySteps = nil
 	m.deployChan = make(chan tea.Msg, 64)
@@ -559,6 +566,23 @@ func (m Model) restartProject(key string) (tea.Model, tea.Cmd) {
 	m.selectedProject = key
 	m.state = viewBusy
 	return m, m.doRestart(project)
+}
+
+func (m Model) startRestartAll() (tea.Model, tea.Cmd) {
+	projects := make([]config.Project, 0, len(m.pm2Keys))
+	for _, key := range m.pm2Keys {
+		project, _ := m.config.GetProject(key)
+		projects = append(projects, project)
+	}
+
+	m.state = viewBusy
+	m.busyLabel = "restarting all"
+	m.deploySteps = nil
+	m.deployChan = make(chan tea.Msg, 64)
+	return m, tea.Batch(
+		restartAllRunner(projects, m.sshClient, m.deployChan),
+		waitForDeploy(m.deployChan),
+	)
 }
 
 func (m Model) toggleTunnel(idx int) (tea.Model, tea.Cmd) {
@@ -690,6 +714,34 @@ func (m Model) doRestart(project config.Project) tea.Cmd {
 			return deployDoneMsg{success: false, message: fmt.Sprintf("error: %v", err)}
 		}
 		return deployDoneMsg{success: true, message: fmt.Sprintf("%s restarted", project.Name)}
+	}
+}
+
+// WHY: sigue con el resto si uno falla, para que una app caida no bloquee las demas.
+func restartAllRunner(projects []config.Project, sshClient *ssh.Client, ch chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		go func() {
+			var sb strings.Builder
+			sb.WriteString("restart all\n\n")
+			failed := 0
+
+			for _, project := range projects {
+				ch <- deployStepMsg{name: project.Name, status: stepRunning}
+
+				if _, err := executor.New(project, sshClient).Restart(); err != nil {
+					failed++
+					ch <- deployStepMsg{name: project.Name, status: stepFailed}
+					sb.WriteString(fmt.Sprintf("  %s %s: %v\n", IconCross, project.Name, err))
+					continue
+				}
+
+				ch <- deployStepMsg{name: project.Name, status: stepDone}
+				sb.WriteString(fmt.Sprintf("  %s %s\n", IconCheck, project.Name))
+			}
+
+			ch <- deployDoneMsg{success: failed == 0, message: sb.String()}
+		}()
+		return nil
 	}
 }
 
@@ -973,7 +1025,7 @@ func (m Model) renderBusy() string {
 
 	var s strings.Builder
 	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render("  deploying"))
+	s.WriteString(subtitleStyle.Render("  " + m.busyLabel))
 	s.WriteString("\n\n")
 
 	for _, st := range m.deploySteps {
@@ -986,7 +1038,11 @@ func (m Model) renderBusy() string {
 		default:
 			mark = m.spinner.View()
 		}
-		s.WriteString("  " + mark + " " + normalStyle.Render(st.name) + "\n")
+		s.WriteString("  ")
+		s.WriteString(mark)
+		s.WriteString(" ")
+		s.WriteString(normalStyle.Render(st.name))
+		s.WriteString("\n")
 	}
 
 	return s.String()
@@ -1056,7 +1112,7 @@ func (m Model) helpText() string {
 	case tabLogs:
 		return "enter live" + d + "l last 100" + d + nav
 	case tabPM2:
-		return "enter restart" + d + "s status" + d + nav
+		return "enter restart" + d + "R all" + d + "s status" + d + nav
 	case tabTunnels:
 		action := "activate"
 		if c := m.cursor(); c < len(m.tunnels) && m.tunnels[c].IsActive() {
