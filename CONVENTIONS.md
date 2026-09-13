@@ -14,6 +14,7 @@ No:
 - Comentario que repite el nombre de la función/variable.
 - Encabezados decorativos o separadores tipo banner.
 - Un comentario por línea o por campo "explicando" lo obvio.
+- Comentarios de varias líneas: si no entra en una, casi siempre sobra texto.
 
 ### Tags (Better Comments)
 
