@@ -9,8 +9,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-// WHY: interface instead of *ssh.Client directly, so a reconnect is picked
-// up automatically without recreating the tunnel.
+// WHY: interface y no *ssh.Client, para que una reconexión se tome sin recrear el túnel.
 type connProvider interface {
 	GetConn() *gossh.Client
 }

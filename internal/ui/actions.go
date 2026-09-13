@@ -121,7 +121,7 @@ func (m Model) startTunnelPortEdit() (tea.Model, tea.Cmd) {
 func (m Model) applyTunnelPortEdit() (tea.Model, tea.Cmd) {
 	port, err := strconv.Atoi(strings.TrimSpace(m.portInput.Value()))
 	if err != nil || port < 1 || port > 65535 {
-		// WHY: no error UI yet, so just stay in edit mode to let it be fixed.
+		// WHY: no hay UI de error todavía, se queda en modo edición para corregirlo.
 		return m, nil
 	}
 	m.editingTunnelPort = false

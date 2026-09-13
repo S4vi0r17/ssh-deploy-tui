@@ -20,7 +20,7 @@ type StepResult struct {
 	Error   string
 }
 
-// WHY: Done/Failed as two bools (not an enum) keep the zero value as "running".
+// WHY: Done/Failed como dos bools y no un enum: el valor cero queda en "running".
 type StepProgress struct {
 	Name   string
 	Done   bool
@@ -50,7 +50,7 @@ func (e *Executor) Deploy(progress chan<- StepProgress) error {
 		{"Instalar dependencias", e.installDeps},
 	}
 
-	// WHY: tests run before build, so a failure aborts before touching the server.
+	// WHY: los tests van antes del build, asi un fallo aborta sin tocar el servidor.
 	if strings.TrimSpace(e.project.TestCmd) != "" {
 		steps = append(steps, struct {
 			name string
@@ -104,8 +104,7 @@ func (e *Executor) Deploy(progress chan<- StepProgress) error {
 	return nil
 }
 
-// WHY: fetch + reset --hard instead of `git pull`, which can fail on
-// conflicts if the server has local changes.
+// WHY: fetch + reset --hard y no `git pull`, que falla si el server tiene cambios locales.
 func (e *Executor) gitPull() (string, error) {
 	cmd := fmt.Sprintf(
 		"cd %s && git fetch origin %s && git checkout %s && git reset --hard origin/%s",
@@ -246,9 +245,7 @@ func (e *Executor) flushPM2() (string, error) {
 	return out, nil
 }
 
-// WHY: `pm2 reload` restarts gracefully (new workers before killing old ones
-// in cluster mode) instead of the downtime gap `pm2 restart` causes. Falls
-// back to `pm2 restart` when the process doesn't exist yet in PM2.
+// WHY: `reload` cambia los workers sin downtime; cae a `restart` si el proceso no existe aun.
 func (e *Executor) reloadPM2() (string, error) {
 	cmd := fmt.Sprintf(
 		"pm2 reload %s --update-env || pm2 restart %s --update-env",

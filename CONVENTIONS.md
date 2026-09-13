@@ -40,8 +40,8 @@ Cuando un comentario es necesario, usa estos tags — coinciden con
 ### Estilo
 
 - `gofmt -l .` sin marcas antes de commitear.
-- Nombres de función/variable en inglés; mensajes de error y texto para el
-  usuario final, en español (consistente con el resto del código).
+- Nombres de función/variable en inglés; comentarios, mensajes de error y
+  texto para el usuario final, en español (consistente con el resto del código).
 - Preferir menos líneas y menos archivos: si una función o archivo crece
   mezclando responsabilidades distintas, se separa; si no, se deja junto.
 

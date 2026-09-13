@@ -72,7 +72,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !found {
 			m.deploySteps = append(m.deploySteps, deployStep{name: msg.name, status: msg.status})
 		}
-		// WHY: re-arm so the next step or the final result is also picked up.
+		// WHY: se re-arma para tomar también el paso siguiente o el resultado final.
 		return m, waitForDeploy(m.deployChan)
 
 	case deployDoneMsg:

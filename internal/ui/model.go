@@ -60,7 +60,7 @@ var nginxActions = []menuItem{
 	{title: "Reload", description: "Reload nginx without dropping connections"},
 }
 
-// WHY: written by the stream goroutine, read by the UI tick — needs a mutex.
+// WHY: lo escribe la goroutine del stream y lo lee el tick de la UI — necesita mutex.
 type logBuffer struct {
 	lines []string
 	mu    sync.Mutex
